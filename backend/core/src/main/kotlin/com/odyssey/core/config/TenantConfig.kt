@@ -22,7 +22,12 @@ data class TenantConfig(
     val amenities: List<String> = emptyList(),
     /** Customer messages by order action (ACCEPT, START, COMPLETE...) and REMINDER. Placeholders: {location} {address} {when} {time} {code} {asset} {services} {note}. */
     val messages: Map<String, Message> = emptyMap(),
+    /** Cities where the marketplace is live, so an app opened elsewhere can offer to look there. */
+    val serviceAreas: List<ServiceArea> = emptyList(),
 )
+
+@Serializable
+data class ServiceArea(val name: String, val lat: Double, val lng: Double)
 
 @Serializable
 data class Message(val title: String, val body: String)

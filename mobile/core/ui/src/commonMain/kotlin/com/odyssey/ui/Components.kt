@@ -142,12 +142,12 @@ fun Labeled(label: String, value: String, strong: Boolean = false) = Row(Modifie
 @Composable
 fun Field(
     label: String, value: String, onChange: (String) -> Unit, modifier: Modifier = Modifier, keyboard: KeyboardType = KeyboardType.Text,
-    secret: Boolean = false, enabled: Boolean = true, supporting: String? = null, height: Int = 44, multiline: Boolean = false, placeholder: String = "",
+    secret: Boolean = false, enabled: Boolean = true, supporting: String? = null, height: Int = 44, multiline: Boolean = false, placeholder: String = "", bare: Boolean = false,
 ) {
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (label.isNotEmpty()) Body(label, size = 12, color = Ind.muted)
         BasicTextField(
-            value, onChange, Modifier.fillMaxWidth().then(if (multiline) Modifier.heightIn(min = 100.dp) else Modifier.height(height.dp)).background(Ind.surface).hairline().padding(horizontal = 10.dp, vertical = if (multiline) 10.dp else 0.dp),
+            value, onChange, Modifier.fillMaxWidth().then(if (multiline) Modifier.heightIn(min = 100.dp) else Modifier.height(height.dp)).then(if (bare) Modifier else Modifier.background(Ind.surface).hairline()).padding(horizontal = if (bare) 0.dp else 10.dp, vertical = if (multiline) 10.dp else 0.dp),
             enabled = enabled, singleLine = !multiline, textStyle = TextStyle(fontFamily = LocalFonts.current.body, fontSize = 16.sp, color = Ind.text),
             keyboardOptions = KeyboardOptions(keyboardType = keyboard), visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
             cursorBrush = SolidColor(Ind.accent),
@@ -250,4 +250,8 @@ fun ReasonDialog(title: String, hint: String, onConfirm: (String) -> Unit, onDis
         confirmButton = { PrimaryButton("Confirm", { onConfirm(text.trim()) }, enabled = text.isNotBlank(), height = 44) },
         dismissButton = { GhostButton("Back", onDismiss) },
     )
+}
+
+fun Modifier.bottomHairline(): Modifier = this.drawBehind {
+    drawLine(Ind.divider, androidx.compose.ui.geometry.Offset(0f, this.size.height), androidx.compose.ui.geometry.Offset(this.size.width, this.size.height), 1.dp.toPx())
 }

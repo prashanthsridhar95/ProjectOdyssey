@@ -61,10 +61,24 @@ class Navigator<R : Any>(start: R) {
     fun replace(route: R) { stack[stack.lastIndex] = route }
 }
 
-/** Where a vertical plugs its own screens into the generic features (for car wash: the garage and vehicle form). */
+/**
+ * Where a vertical plugs its own pieces into the generic features. For car wash this is the garage: the vehicle form,
+ * the vehicle's icon and which price column (hatchback, sedan...) it uses. A vertical with nothing to save returns null.
+ */
 interface VerticalUi {
-    /** Lets the customer choose or add the thing being served (a vehicle). Null when the vertical has none. */
-    @Composable fun AssetPicker(selectedId: String?, variantKey: String, onSelected: (assetId: String?, variantKey: String?) -> Unit)
+    /** What the customer saves ("Vehicle"). */
+    val assetNoun: String
+    /** Full-screen form that saves a new asset and reports it. [stepText] is shown in the header during onboarding. */
+    @Composable fun AssetForm(stepText: String?, onBack: (() -> Unit)?, onSaved: (com.odyssey.domain.Asset) -> Unit)
+    fun variantOf(asset: com.odyssey.domain.Asset): String?
+    fun iconFor(asset: com.odyssey.domain.Asset): androidx.compose.ui.graphics.vector.ImageVector
+    fun iconForVariant(key: String): androidx.compose.ui.graphics.vector.ImageVector
+    /** Quick positives shown when rating. */
+    val reviewTags: List<String> get() = listOf("On time", "Friendly staff", "Good value")
+    /** What can go wrong, as (server category, label). The server accepts QUALITY, DAMAGE, WAIT and CHARGE. */
+    val reportCategories: List<Pair<String, String>> get() = listOf("QUALITY" to "Quality", "DAMAGE" to "Damage", "WAIT" to "Long wait", "CHARGE" to "Charged incorrectly")
+    /** The noun in headings like "How was your wash?". */
+    val serviceNoun: String get() = "service"
 }
 
 val LocalVertical = staticCompositionLocalOf<VerticalUi?> { null }

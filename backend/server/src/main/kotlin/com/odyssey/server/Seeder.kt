@@ -38,7 +38,7 @@ class Seeder(private val ctx: AppContext) {
     fun seedIfEmpty() {
         if (r.tenants.bySlug("carwash") != null) return
         log.info("Seeding demo data")
-        val tenant = Tenant(ctx.ids.newId(), "carwash", "Odyssey Car Wash", CarWashPack.VERTICAL, CarWashPack.config)
+        val tenant = Tenant(ctx.ids.newId(), "carwash", "Rinse", CarWashPack.VERTICAL, CarWashPack.config)
         r.tenants.insert(tenant)
         r.users.insert(User(ctx.ids.newId(), tenant.id, ADMIN_PHONE, "Platform Admin", Role.ADMIN))
         val now = ctx.clock.now()

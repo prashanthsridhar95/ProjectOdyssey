@@ -5,36 +5,54 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import com.composables.icons.lucide.*
 import com.odyssey.auth.LoginScreen
 import com.odyssey.booking.*
 import com.odyssey.carwash.CarWashUi
 import com.odyssey.data.AndroidSessionStore
 import com.odyssey.data.AppContainer
-import com.odyssey.discovery.HomeScreen
-import com.odyssey.discovery.PlaceScreen
+import com.odyssey.discovery.*
+import com.odyssey.domain.Order
 import com.odyssey.domain.PublicConfig
-import androidx.compose.foundation.layout.fillMaxSize
+import com.odyssey.domain.SavedPlace
 import com.odyssey.ui.*
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
-/** Where the customer can be. Each route carries only plain values, so state survives process death easily. */
+/** Where the customer can be. Each route carries plain values only. */
 sealed interface Route {
-    data object Home : Route
+    data object Tabs : Route
     data class Place(val id: String) : Route
-    data class Slots(val locationId: String, val itemIds: List<String>, val variantKey: String, val assetId: String?) : Route
-    data class Checkout(val locationId: String, val itemIds: List<String>, val variantKey: String, val assetId: String?, val startsAt: String) : Route
-    data object Bookings : Route
+    data class Slots(val locationId: String, val itemIds: List<String>, val variantKey: String) : Route
+    data class Checkout(val locationId: String, val itemIds: List<String>, val variantKey: String, val startsAt: String) : Route
+    data class Confirmed(val order: Order) : Route
+    data class Reschedule(val order: Order) : Route
     data class Booking(val id: String) : Route
+    data class Rate(val id: String) : Route
+    data class Report(val id: String) : Route
+    data class AddVehicle(val step: String?) : Route
+    data object Notifications : Route
+    data object Favorites : Route
 }
 
 class MainActivity : ComponentActivity() {
     private val container by lazy { AppContainer(BuildConfig.API_URL, BuildConfig.TENANT, AndroidSessionStore(this, "customer")) }
+    private lateinit var platform: AndroidPlatform
+    private val photo = registerForActivityResult(ActivityResultContracts.GetContent()) { uri -> platform.photoCallback?.invoke(platform.encode(uri)); platform.photoCallback = null }
+    private val permissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {}
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) {}.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+        platform = AndroidPlatform(this) { photo.launch("image/*") }
+        permissions.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.POST_NOTIFICATIONS))
         setContent {
-            OdysseyTheme {
+            IndustryTheme {
                 var config by remember { mutableStateOf<PublicConfig?>(null) }
                 var failure by remember { mutableStateOf<String?>(null) }
                 LaunchedEffect(Unit) { try { config = container.auth.config() } catch (e: Exception) { failure = e.friendly() } }
@@ -42,36 +60,107 @@ class MainActivity : ComponentActivity() {
                 when {
                     loaded != null -> CompositionLocalProvider(
                         LocalContainer provides container, LocalTenant provides loaded, LocalVertical provides CarWashUi, LocalLocation provides AndroidLocationProvider(this),
+                        LocalPlatform provides platform, LocalCustomer provides remember { CustomerState() },
                     ) { CustomerApp(loaded.tenant.name) }
-                    failure != null -> androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize(), androidx.compose.ui.Alignment.Center) { ErrorBox(failure!!) }
-                    else -> androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize(), androidx.compose.ui.Alignment.Center) { androidx.compose.material3.CircularProgressIndicator() }
+                    failure != null -> Box(Modifier.fillMaxSize(), Alignment.Center) { ErrorBox(failure!!) }
+                    else -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator(color = Ind.accent) }
                 }
             }
         }
     }
 }
 
+private val TABS = listOf(TabItem("Explore", Lucide.Compass), TabItem("Bookings", Lucide.Calendar), TabItem("Garage", Lucide.Car), TabItem("Account", Lucide.User))
 
 @Composable
 private fun CustomerApp(tenantName: String) {
     val app = LocalContainer.current
+    val customer = LocalCustomer.current
+    val platform = LocalPlatform.current
+    val where = LocalLocation.current
     val session = app.session.collectAsStateValue()
-    val nav = remember { Navigator<Route>(Route.Home) }
+    val nav = remember { Navigator<Route>(Route.Tabs) }
+    var tab by remember { mutableStateOf(0) }
+    var choosingPlace by remember { mutableStateOf(false) }
+    var problem by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
     BackHandler(enabled = nav.canPop) { nav.pop() }
 
     if (session == null) {
-        LoginScreen(title = tenantName, subtitle = "Book a car wash near you", askName = true, onSignedIn = { nav.reset(Route.Home) })
+        LoginScreen("Book a car wash near you.", "See price and wait time before you leave home.", askName = true, onSignedIn = { nav.reset(Route.Tabs); tab = 0 })
         return
     }
+
+    // Load what the customer keeps: vehicles, saved places, favourites. First time with no vehicle: onboarding step.
+    var ready by remember(session.user.id) { mutableStateOf(false) }
+    LaunchedEffect(session.user.id) {
+        runCatching {
+            customer.garage = app.customer.assets(); customer.vehicle = customer.garage.firstOrNull()
+            customer.savedPlaces = app.customer.places()
+            val (la, ln) = where.current(); customer.place = PlaceSel("Current location", "Near you", la, ln)
+            customer.favorites = app.customer.favorites(la, ln).map { it.id }.toSet()
+        }
+        ready = true
+        if (customer.garage.isEmpty()) nav.reset(Route.AddVehicle("Step 2 of 3"))
+    }
+
+    // Poll for booking updates and show them as notifications (a push service replaces this).
+    LaunchedEffect(session.user.id) {
+        var known: Set<String>? = null
+        while (true) {
+            runCatching {
+                val items = app.customer.notifications()
+                customer.unread = items.count { !it.read }
+                val fresh = items.filter { !it.read }.map { it.id }.toSet()
+                known?.let { old -> items.filter { !it.read && it.id !in old }.reversed().forEach { platform.notify(it.title, it.body) } }
+                known = (known ?: emptySet()) + fresh
+                if (known == null) known = fresh
+            }
+            delay(20_000)
+        }
+    }
+    if (!ready) { Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator(color = Ind.accent) }; return }
+
     when (val r = nav.current) {
-        Route.Home -> HomeScreen(tenantName, onOpen = { nav.push(Route.Place(it)) }, onBookings = { nav.push(Route.Bookings) }, onSignOut = app::logout)
-        is Route.Place -> PlaceScreen(r.id, onBack = { nav.pop() }, onPickSlot = { items, variant, asset -> nav.push(Route.Slots(r.id, items, variant, asset)) })
-        is Route.Slots -> SlotPickerScreen(r.locationId, r.itemIds, onBack = { nav.pop() }, onContinue = { nav.push(Route.Checkout(r.locationId, r.itemIds, r.variantKey, r.assetId, it)) })
+        Route.Tabs -> Column(Modifier.fillMaxSize()) {
+            Box(Modifier.weight(1f)) {
+                when (tab) {
+                    0 -> HomeScreen(onOpen = { nav.push(Route.Place(it)) }, onChangePlace = { choosingPlace = true }, onOpenNotifications = { nav.push(Route.Notifications) }, onNeedVehicle = { nav.push(Route.AddVehicle(null)) })
+                    1 -> BookingsScreen(onOpen = { nav.push(Route.Booking(it)) }, onRebook = { nav.push(Route.Place(it)) }, onReschedule = { nav.push(Route.Reschedule(it)) }, bottomBar = {})
+                    2 -> GarageScreen(onAdd = { nav.push(Route.AddVehicle(null)) }, bottomBar = {})
+                    else -> AccountScreen(onNotifications = { nav.push(Route.Notifications) }, onFavorites = { nav.push(Route.Favorites) }, onSignOut = app::logout, bottomBar = {})
+                }
+            }
+            BottomTabs(TABS, tab) { tab = it }
+        }
+        is Route.Place -> PlaceScreen(r.id, onBack = { nav.pop() }, onPickSlot = { items, variant -> nav.push(Route.Slots(r.id, items, variant)) })
+        is Route.Slots -> SlotPickerScreen(r.locationId, r.itemIds, r.variantKey, onBack = { nav.pop() }, onContinue = { nav.push(Route.Checkout(r.locationId, r.itemIds, r.variantKey, it)) })
         is Route.Checkout -> CheckoutScreen(
-            r.locationId, r.itemIds, r.variantKey, r.startsAt, r.assetId, allowSimulation = BuildConfig.DEBUG,
-            onBack = { nav.pop() }, onPaid = { nav.reset(Route.Home); nav.push(Route.Booking(it.id)) },
+            r.locationId, r.itemIds, r.variantKey, r.startsAt, customer.vehicle?.id, allowSimulation = BuildConfig.DEBUG,
+            onBack = { nav.pop() }, onPaid = { nav.reset(Route.Confirmed(it)) },
         )
-        Route.Bookings -> BookingsScreen(onBack = { nav.pop() }, onOpen = { nav.push(Route.Booking(it)) })
-        is Route.Booking -> BookingDetailScreen(r.id, onBack = { nav.pop() })
+        is Route.Confirmed -> ConfirmedScreen(r.order, onClose = { tab = 1; nav.reset(Route.Tabs) })
+        is Route.Reschedule -> SlotPickerScreen(
+            r.order.locationId, r.order.lines.map { it.itemId }, r.order.variantKey, onBack = { nav.pop() }, heading = "Move your ${LocalTenant.current.config.labels.order.lowercase()}", confirmText = "Move here",
+            onContinue = { start ->
+                scope.launch {
+                    try { app.customer.reschedule(r.order.id, start); nav.reset(Route.Tabs); tab = 1 } catch (e: Exception) { problem = e.friendly() }
+                }
+            },
+        )
+        is Route.Booking -> BookingDetailScreen(r.id, onBack = { nav.pop() }, onRate = { nav.push(Route.Rate(it)) }, onReport = { nav.push(Route.Report(it)) })
+        is Route.Rate -> RateScreen(r.id, onClose = { nav.pop() }, onReport = { nav.push(Route.Report(r.id)) })
+        is Route.Report -> ReportScreen(r.id, onBack = { nav.pop() }, onSent = { nav.pop() })
+        is Route.AddVehicle -> LocalVertical.current!!.AssetForm(r.step, onBack = if (r.step == null) ({ nav.pop() }) else null, onSaved = { if (r.step != null) nav.reset(Route.Tabs) else nav.pop() })
+        Route.Notifications -> NotificationsScreen(onBack = { nav.pop() }, onOpenOrder = { nav.push(Route.Booking(it)) })
+        Route.Favorites -> FavoritesScreen(onBack = { nav.pop() }, onOpen = { nav.push(Route.Place(it)) })
+    }
+    if (choosingPlace) PlaceChooser { choosingPlace = false }
+
+    problem?.let { msg ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { problem = null }, containerColor = Ind.bg, title = { Heading("That didn't work", 22) }, text = { Body(msg) },
+            confirmButton = { GhostButton("OK", { problem = null }) },
+        )
     }
 }

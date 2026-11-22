@@ -18,21 +18,36 @@ interface AuthRepository {
 
 data class SearchFilters(
     val lat: Double, val lng: Double, val sort: String = "distance", val text: String? = null,
-    val variantKey: String? = null, val openNow: Boolean = false, val maxPriceMinor: Long? = null,
-)
+    val variantKey: String? = null, val openNow: Boolean = false, val minPriceMinor: Long? = null, val maxPriceMinor: Long? = null,
+    val minRating: Double = 0.0, val services: Set<String> = emptySet(), val amenities: Set<String> = emptySet(),
+) {
+    /** How many filters are switched on, for the "Filters · 2" badge. */
+    val activeCount: Int get() = listOf(openNow, services.isNotEmpty(), minPriceMinor != null || maxPriceMinor != null, minRating > 0, amenities.isNotEmpty()).count { it }
+}
 
-data class PlaceOrderInput(val locationId: String, val itemIds: List<String>, val variantKey: String, val startsAt: String, val assetId: String?)
+data class PlaceOrderInput(val locationId: String, val itemIds: List<String>, val variantKey: String, val startsAt: String, val assetId: String?, val promoCode: String? = null)
 
 interface CustomerRepository {
     suspend fun search(filters: SearchFilters): List<LocationSummary>
-    suspend fun detail(locationId: String, variantKey: String?): LocationDetail
+    suspend fun detail(locationId: String, variantKey: String?, lat: Double? = null, lng: Double? = null): LocationDetail
     suspend fun slots(locationId: String, date: String, itemIds: List<String>): List<Slot>
     suspend fun assets(): List<Asset>
     suspend fun addAsset(attributes: Map<String, String>): Asset
     suspend fun deleteAsset(id: String)
     suspend fun placeOrder(input: PlaceOrderInput, idempotencyKey: String): Order
     suspend fun pay(orderId: String, method: String, simulate: String?, idempotencyKey: String): Order
-    suspend fun review(orderId: String, rating: Int, comment: String)
+    suspend fun review(orderId: String, rating: Int, comment: String, tags: List<String>)
+    suspend fun quote(locationId: String, itemIds: List<String>, variantKey: String, promoCode: String?): Quote
+    suspend fun reschedule(orderId: String, startsAt: String): Order
+    suspend fun checkPayment(orderId: String): Order
+    suspend fun report(orderId: String, category: String, description: String, photos: List<String>): Ticket
+    suspend fun favorites(lat: Double, lng: Double): List<LocationSummary>
+    suspend fun setFavorite(locationId: String, on: Boolean)
+    suspend fun places(): List<SavedPlace>
+    suspend fun savePlace(place: SavedPlace): List<SavedPlace>
+    suspend fun deletePlace(label: String)
+    suspend fun notifications(): List<AppNotification>
+    suspend fun markNotificationsRead()
 }
 
 /** Order reads and state changes are shared by every role; the server decides who may do what. */

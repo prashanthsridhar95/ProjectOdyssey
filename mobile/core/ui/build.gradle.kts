@@ -7,6 +7,8 @@ plugins {
 
 kotlin {
     sourceSets {
+        androidMain.dependencies { implementation("com.google.zxing:core:3.5.3") }
+        jvmMain.dependencies { implementation("com.google.zxing:core:3.5.3") }
         commonMain.dependencies {
             api(project(":core:data"))
             api(compose.runtime)

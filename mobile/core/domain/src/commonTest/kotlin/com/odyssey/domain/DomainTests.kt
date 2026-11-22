@@ -38,8 +38,8 @@ class CheckoutTest {
     @Test fun addsTaxAndFeeToTheServiceAmount() {
         val c = BuildCheckout()(listOf(item("a", 30000, 30), item("b", 20000, 15)), "SEDAN", MoneyConfig(taxBps = 1800, customerFeeMinor = 500))!!
         assertEquals(50000, c.subtotalMinor)
-        assertEquals(9000, c.taxMinor)
-        assertEquals(59500, c.totalMinor)
+        assertEquals(9090, c.taxMinor, "18% of service plus fee")
+        assertEquals(59590, c.totalMinor)
         assertEquals(45, c.durationMinutes)
     }
 
@@ -47,6 +47,19 @@ class CheckoutTest {
         assertNull(BuildCheckout()(listOf(item("a", 100, 10)), "SUV", MoneyConfig()))
         assertNull(BuildCheckout()(emptyList(), "SEDAN", MoneyConfig()))
     }
+}
+
+class ProgressTest {
+    private fun ev(to: String, at: String) = OrderEvent(null, to, "X", null, at)
+
+    @Test fun marksStepsReachedAndTheCurrentOne() {
+        val steps = progressSteps(listOf(ev("CONFIRMED", "a"), ev("CHECKED_IN", "b")), "CHECKED_IN", emptyMap())
+        assertEquals(listOf(true, true, false, false), steps.map { it.done })
+        assertEquals(listOf(false, true, false, false), steps.map { it.current })
+        assertEquals("b", steps[1].at)
+    }
+
+    @Test fun codeIsSplitForReading() = assertEquals("RN 4K7Q", displayCode("RN4K7Q"))
 }
 
 class RefundPreviewTest {

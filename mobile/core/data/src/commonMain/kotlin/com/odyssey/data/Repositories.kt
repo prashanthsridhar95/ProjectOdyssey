@@ -9,10 +9,13 @@ import kotlinx.serialization.json.JsonElement
 @Serializable internal data class PinLoginBody(val phone: String, val pin: String)
 @Serializable internal data class AuthReply(val accessToken: String, val user: User)
 @Serializable internal data class AssetBody(val attributes: Map<String, String>)
-@Serializable internal data class PlaceBody(val locationId: String, val itemIds: List<String>, val variantKey: String, val startsAt: String, val assetId: String? = null)
+@Serializable internal data class PlaceBody(val locationId: String, val itemIds: List<String>, val variantKey: String, val startsAt: String, val assetId: String? = null, val promoCode: String? = null)
 @Serializable internal data class PayBody(val method: String, val simulate: String? = null)
 @Serializable internal data class ActionBody(val action: String, val note: String? = null)
-@Serializable internal data class ReviewBody(val rating: Int, val comment: String)
+@Serializable internal data class ReviewBody(val rating: Int, val comment: String, val tags: List<String> = emptyList())
+@Serializable internal data class QuoteBody(val locationId: String, val itemIds: List<String>, val variantKey: String, val promoCode: String? = null)
+@Serializable internal data class RescheduleBody(val startsAt: String)
+@Serializable internal data class ReportBody(val category: String, val description: String, val photos: List<String>)
 @Serializable internal data class BlockBody(val startsAt: String, val endsAt: String, val reason: String)
 @Serializable internal data class WalkInBody(val locationId: String, val itemIds: List<String>, val variantKey: String, val startsAt: String, val customerName: String)
 @Serializable internal data class ItemBody(val name: String, val description: String, val category: String, val durationMinutes: Int, val active: Boolean, val prices: Map<String, Long>)
@@ -32,19 +35,31 @@ class AuthRepositoryImpl(private val api: ApiClient, private val store: SessionS
 class CustomerRepositoryImpl(private val api: ApiClient) : CustomerRepository {
     override suspend fun search(filters: SearchFilters): List<LocationSummary> = api.get(
         "/locations", mapOf("lat" to filters.lat, "lng" to filters.lng, "sort" to filters.sort, "q" to filters.text, "variant" to filters.variantKey,
-            "openNow" to filters.openNow.takeIf { it }, "maxPrice" to filters.maxPriceMinor, "radiusKm" to 30),
+            "openNow" to filters.openNow.takeIf { it }, "maxPrice" to filters.maxPriceMinor, "minPrice" to filters.minPriceMinor, "radiusKm" to 30,
+            "minRating" to filters.minRating.takeIf { it > 0 }, "services" to filters.services.takeIf { it.isNotEmpty() }?.joinToString(","), "amenities" to filters.amenities.takeIf { it.isNotEmpty() }?.joinToString(",")),
     )
-    override suspend fun detail(locationId: String, variantKey: String?): LocationDetail = api.get("/locations/$locationId", mapOf("variant" to variantKey))
+    override suspend fun detail(locationId: String, variantKey: String?, lat: Double?, lng: Double?): LocationDetail = api.get("/locations/$locationId", mapOf("variant" to variantKey, "lat" to lat, "lng" to lng))
     override suspend fun slots(locationId: String, date: String, itemIds: List<String>): List<Slot> =
         api.get("/locations/$locationId/availability", mapOf("date" to date, "itemIds" to itemIds.joinToString(",")))
     override suspend fun assets(): List<Asset> = api.get("/assets")
     override suspend fun addAsset(attributes: Map<String, String>): Asset = api.post("/assets", AssetBody(attributes))
     override suspend fun deleteAsset(id: String) = api.delete("/assets/$id")
     override suspend fun placeOrder(input: PlaceOrderInput, idempotencyKey: String): Order =
-        api.post("/orders", PlaceBody(input.locationId, input.itemIds, input.variantKey, input.startsAt, input.assetId), idempotencyKey = idempotencyKey)
+        api.post("/orders", PlaceBody(input.locationId, input.itemIds, input.variantKey, input.startsAt, input.assetId, input.promoCode), idempotencyKey = idempotencyKey)
     override suspend fun pay(orderId: String, method: String, simulate: String?, idempotencyKey: String): Order =
         api.post("/orders/$orderId/pay", PayBody(method, simulate), idempotencyKey = idempotencyKey)
-    override suspend fun review(orderId: String, rating: Int, comment: String) { api.post<ReviewBody, JsonElement>("/orders/$orderId/review", ReviewBody(rating, comment)) }
+    override suspend fun review(orderId: String, rating: Int, comment: String, tags: List<String>) { api.post<ReviewBody, JsonElement>("/orders/$orderId/review", ReviewBody(rating, comment, tags)) }
+    override suspend fun quote(locationId: String, itemIds: List<String>, variantKey: String, promoCode: String?): Quote = api.post("/quote", QuoteBody(locationId, itemIds, variantKey, promoCode))
+    override suspend fun reschedule(orderId: String, startsAt: String): Order = api.post("/orders/$orderId/reschedule", RescheduleBody(startsAt))
+    override suspend fun checkPayment(orderId: String): Order = api.post("/orders/$orderId/payment/check", RescheduleBody(""))
+    override suspend fun report(orderId: String, category: String, description: String, photos: List<String>): Ticket = api.post("/orders/$orderId/report", ReportBody(category, description, photos))
+    override suspend fun favorites(lat: Double, lng: Double): List<LocationSummary> = api.get("/favorites", mapOf("lat" to lat, "lng" to lng))
+    override suspend fun setFavorite(locationId: String, on: Boolean) { if (on) api.putNoBody("/favorites/$locationId") else api.delete("/favorites/$locationId") }
+    override suspend fun places(): List<SavedPlace> = api.get("/me/places")
+    override suspend fun savePlace(place: SavedPlace): List<SavedPlace> = api.put("/me/places", place)
+    override suspend fun deletePlace(label: String) = api.delete("/me/places/$label")
+    override suspend fun notifications(): List<AppNotification> = api.get("/notifications")
+    override suspend fun markNotificationsRead() { api.postNoBody("/notifications/read") }
 }
 
 class OrderRepositoryImpl(private val api: ApiClient) : OrderRepository {

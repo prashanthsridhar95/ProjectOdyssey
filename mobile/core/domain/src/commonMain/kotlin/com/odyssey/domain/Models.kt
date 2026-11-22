@@ -39,7 +39,10 @@ data class TenantConfig(
     val cancellation: CancellationPolicy = CancellationPolicy(),
     val serviceTemplates: List<ServiceTemplate> = emptyList(),
     val amenities: List<String> = emptyList(),
+    val serviceAreas: List<ServiceArea> = emptyList(),
 )
+
+@Serializable data class ServiceArea(val name: String, val lat: Double, val lng: Double)
 
 @Serializable data class TenantInfo(val slug: String, val name: String, val vertical: String)
 @Serializable data class PublicConfig(val tenant: TenantInfo, val config: TenantConfig)
@@ -51,13 +54,13 @@ data class LocationSummary(
     val id: String, val providerId: String, val name: String, val providerName: String, val address: String,
     val lat: Double, val lng: Double, val distanceKm: Double, val priceFromMinor: Long? = null, val nextFreeAt: String? = null,
     val openNow: Boolean = false, val ratingAvg: Double = 0.0, val ratingCount: Int = 0, val amenities: List<String> = emptyList(),
-    val photoUrl: String? = null, val openTime: String = "", val closeTime: String = "",
+    val photoUrl: String? = null, val openTime: String = "", val closeTime: String = "", val phone: String? = null,
 )
 
 @Serializable
 data class Item(val id: String, val name: String, val description: String = "", val category: String = "", val durationMinutes: Int, val active: Boolean = true, val prices: Map<String, Long> = emptyMap())
 
-@Serializable data class Review(val id: String, val customerName: String, val rating: Int, val comment: String = "", val createdAt: String)
+@Serializable data class Review(val id: String, val customerName: String, val rating: Int, val comment: String = "", val createdAt: String, val tags: List<String> = emptyList())
 @Serializable data class LocationDetail(val location: LocationSummary, val items: List<Item> = emptyList(), val reviews: List<Review> = emptyList())
 @Serializable data class Slot(val startsAt: String, val endsAt: String, val free: Int, val bookable: Boolean)
 
@@ -71,12 +74,26 @@ data class Order(
     val subtotalMinor: Long, val taxMinor: Long = 0, val feeMinor: Long = 0, val totalMinor: Long,
     val commissionBps: Int? = null, val commissionMinor: Long? = null, val holdExpiresAt: String? = null,
     val cancellationReason: String? = null, val createdAt: String = "", val actions: List<String> = emptyList(), val reviewed: Boolean = false,
+    val discountMinor: Long = 0, val promoCode: String? = null, val paymentPending: Boolean = false, val reschedules: Int = 0,
+    val locationPhone: String? = null, val locationAddress: String? = null, val locationLat: Double? = null, val locationLng: Double? = null,
 )
 
 @Serializable data class OrderEvent(val from: String? = null, val to: String, val action: String, val note: String? = null, val at: String)
 @Serializable data class OrderDetail(val order: Order, val events: List<OrderEvent> = emptyList())
 
 @Serializable data class Asset(val id: String, val kind: String, val label: String, val attributes: Map<String, String> = emptyMap())
+
+@Serializable
+data class Quote(val subtotalMinor: Long, val taxMinor: Long, val feeMinor: Long, val discountMinor: Long, val totalMinor: Long, val promoCode: String? = null, val promoDescription: String? = null)
+
+@Serializable data class SavedPlace(val label: String, val address: String, val lat: Double, val lng: Double)
+@Serializable data class AppNotification(val id: String, val title: String, val body: String, val orderId: String? = null, val read: Boolean = false, val createdAt: String)
+
+@Serializable
+data class Ticket(
+    val id: String, val orderId: String, val orderCode: String? = null, val locationName: String? = null, val customerName: String? = null, val category: String,
+    val description: String, val photos: List<String> = emptyList(), val status: String, val resolutionNote: String? = null, val refundMinor: Long = 0, val totalMinor: Long? = null, val createdAt: String,
+)
 
 // ---- provider and admin ----
 

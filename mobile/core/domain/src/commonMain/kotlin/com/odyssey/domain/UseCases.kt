@@ -29,7 +29,7 @@ class SearchPlaces(private val repo: CustomerRepository) {
 }
 
 class LoadPlace(private val repo: CustomerRepository) {
-    suspend operator fun invoke(id: String, variantKey: String?) = repo.detail(id, variantKey)
+    suspend operator fun invoke(id: String, variantKey: String?, lat: Double? = null, lng: Double? = null) = repo.detail(id, variantKey, lat, lng)
 }
 
 class LoadSlots(private val repo: CustomerRepository) {
@@ -37,15 +37,17 @@ class LoadSlots(private val repo: CustomerRepository) {
 }
 
 /** Price breakdown shown before the customer pays. The server recomputes the same numbers when the booking is placed. */
-data class Checkout(val subtotalMinor: Long, val taxMinor: Long, val feeMinor: Long, val totalMinor: Long, val durationMinutes: Int)
+data class Checkout(val subtotalMinor: Long, val taxMinor: Long, val feeMinor: Long, val totalMinor: Long, val durationMinutes: Int, val discountMinor: Long = 0)
 
 class BuildCheckout {
-    operator fun invoke(items: List<Item>, variantKey: String, money: MoneyConfig): Checkout? {
+    /** An estimate for showing a price before the server quotes it. Tax covers the service plus the fee, matching the server. */
+    operator fun invoke(items: List<Item>, variantKey: String, money: MoneyConfig, discountMinor: Long = 0): Checkout? {
         if (items.isEmpty()) return null
         val prices = items.map { it.prices[variantKey] ?: return null }
         val subtotal = prices.sum()
-        val tax = (subtotal * money.taxBps / 10_000.0).roundToLong()
-        return Checkout(subtotal, tax, money.customerFeeMinor, subtotal + tax + money.customerFeeMinor, items.sumOf { it.durationMinutes })
+        val tax = ((subtotal + money.customerFeeMinor) * money.taxBps / 10_000.0).roundToLong()
+        val discount = minOf(discountMinor, subtotal + money.customerFeeMinor + tax)
+        return Checkout(subtotal, tax, money.customerFeeMinor, subtotal + tax + money.customerFeeMinor - discount, items.sumOf { it.durationMinutes }, discount)
     }
 }
 
@@ -59,7 +61,7 @@ class ManageBookings(private val orders: OrderRepository, private val customer: 
     suspend fun detail(id: String) = orders.order(id)
     suspend fun cancel(id: String) = orders.act(id, "CANCEL_BY_CUSTOMER", null)
     suspend fun abandon(id: String) = orders.act(id, "ABANDON", null)
-    suspend fun review(id: String, rating: Int, comment: String) = customer.review(id, rating.coerceIn(1, 5), comment)
+    suspend fun review(id: String, rating: Int, comment: String, tags: List<String> = emptyList()) = customer.review(id, rating.coerceIn(1, 5), comment, tags)
 }
 
 /** What a customer would get back right now if they cancelled, according to the tenant's policy. */
@@ -92,3 +94,18 @@ class RunAdmin(private val repo: AdminRepository, private val orders: OrderRepos
     suspend fun orders(status: String?) = repo.orders(status)
     suspend fun cancel(orderId: String, reason: String) = orders.act(orderId, "ADMIN_CANCEL", reason)
 }
+
+/** Booking progress for the timeline: which step the order is on. Built from the order's history, so it matches what the vendor did. */
+data class ProgressStep(val label: String, val at: String?, val done: Boolean, val current: Boolean)
+
+fun progressSteps(events: List<OrderEvent>, status: String, labels: Map<String, String>): List<ProgressStep> {
+    val order = listOf("CONFIRMED", "CHECKED_IN", "IN_PROGRESS", "COMPLETED")
+    val reached = events.associate { it.to to it.at }
+    return order.map { s -> ProgressStep(labels[s] ?: s.titleCase(), reached[s], done = s in reached.keys, current = s == status) }
+}
+
+fun hoursUntil(iso: String, now: kotlin.time.Instant = kotlin.time.Clock.System.now()): Double =
+    iso.toInstantOrNull()?.let { (it - now).inWholeMinutes / 60.0 } ?: 0.0
+
+/** "RN 4K7Q": the booking code split for easy reading aloud at the counter. */
+fun displayCode(code: String): String = if (code.length > 4) code.take(code.length - 4) + " " + code.takeLast(4) else code

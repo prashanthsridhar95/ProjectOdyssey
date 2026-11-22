@@ -78,6 +78,7 @@ object CarWashPack {
             ServiceTemplate("Full detailing", "Detailing", 120, "Full exterior and interior detailing"),
         ),
         amenities = listOf("Waiting lounge", "Covered bay", "Parking", "Free WiFi"),
+        serviceAreas = listOf(ServiceArea("Bengaluru", 12.9716, 77.5946)),
         messages = mapOf(
             "ACCEPT" to Message("You're booked", "{location}, {when}. Show code {code} at the counter."),
             "CHECK_IN" to Message("Car checked in", "{location} checked in {asset}."),

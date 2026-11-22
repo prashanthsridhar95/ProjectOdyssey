@@ -48,6 +48,8 @@ class ApiClient(
 
     suspend inline fun <reified B : Any> postUnit(path: String, payload: B, pin: String? = null) { send(HttpMethod.Post, path, emptyMap(), { setBody(payload) }, pin, null) }
 
+    suspend fun putNoBody(path: String, pin: String? = null) { send(HttpMethod.Put, path, emptyMap(), { setBody("{}"); contentType(ContentType.Application.Json) }, pin, null) }
+
     suspend fun postNoBody(path: String, pin: String? = null) { send(HttpMethod.Post, path, emptyMap(), { setBody("{}"); contentType(ContentType.Application.Json) }, pin, null) }
 
     suspend fun delete(path: String, pin: String? = null) { send(HttpMethod.Delete, path, emptyMap(), null, pin, null) }
