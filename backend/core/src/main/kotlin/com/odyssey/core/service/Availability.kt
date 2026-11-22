@@ -18,7 +18,7 @@ class SlotAvailability(private val orders: OrderRepo, private val blocks: BlockR
     fun slotsNeeded(location: Location, durationMinutes: Int): Int =
         maxOf(1, Math.ceilDiv(durationMinutes, location.slotMinutes))
 
-    fun slots(tenant: Tenant, location: Location, date: LocalDate, durationMinutes: Int, now: Instant): List<Slot> {
+    fun slots(tenant: Tenant, location: Location, date: LocalDate, durationMinutes: Int, now: Instant, excludeOrderId: Id? = null): List<Slot> {
         val zone = ZoneId.of(location.timezone)
         val step = Duration.ofMinutes(location.slotMinutes.toLong())
         val opens = date.atTime(location.openTime).atZone(zone).toInstant()
@@ -26,7 +26,7 @@ class SlotAvailability(private val orders: OrderRepo, private val blocks: BlockR
         if (!location.open || !closes.isAfter(opens)) return emptyList()
 
         val needed = slotsNeeded(location, durationMinutes)
-        val occupying = orders.occupying(location.id, opens, closes, tenant.config.flow.occupying(), now)
+        val occupying = orders.occupying(location.id, opens, closes, tenant.config.flow.occupying(), now).filter { it.id != excludeOrderId }
         val closed = blocks.overlapping(location.id, opens, closes)
 
         fun freeAt(start: Instant): Int {
@@ -56,10 +56,10 @@ class SlotAvailability(private val orders: OrderRepo, private val blocks: BlockR
     }
 
     /** Throws when the requested interval cannot be booked. Call inside a unit of work holding the location lock. */
-    fun ensureBookable(tenant: Tenant, location: Location, startsAt: Instant, durationMinutes: Int, now: Instant) {
+    fun ensureBookable(tenant: Tenant, location: Location, startsAt: Instant, durationMinutes: Int, now: Instant, excludeOrderId: Id? = null) {
         val zone = ZoneId.of(location.timezone)
         val date = startsAt.atZone(zone).toLocalDate()
-        val slot = slots(tenant, location, date, durationMinutes, now).firstOrNull { it.startsAt == startsAt }
+        val slot = slots(tenant, location, date, durationMinutes, now, excludeOrderId).firstOrNull { it.startsAt == startsAt }
             ?: throw conflict("slot_unavailable", "That time is not a valid slot")
         if (!slot.bookable) throw conflict("slot_unavailable", "That slot is no longer available")
     }

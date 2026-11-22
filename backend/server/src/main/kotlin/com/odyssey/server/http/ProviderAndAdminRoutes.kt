@@ -67,7 +67,7 @@ fun Route.providerRoutes(ctx: AppContext) {
                     name = req.name ?: l.name, address = req.address ?: l.address,
                     openTime = req.openTime?.let(LocalTime::parse) ?: l.openTime, closeTime = req.closeTime?.let(LocalTime::parse) ?: l.closeTime,
                     slotMinutes = req.slotMinutes ?: l.slotMinutes, capacity = req.capacity ?: l.capacity,
-                    autoAccept = req.autoAccept ?: l.autoAccept, open = req.open ?: l.open, amenities = req.amenities ?: l.amenities,
+                    autoAccept = req.autoAccept ?: l.autoAccept, open = req.open ?: l.open, amenities = req.amenities ?: l.amenities, phone = req.phone ?: l.phone,
                 )
             }
             call.respond(updated.dto())
@@ -143,6 +143,19 @@ fun Route.providerRoutes(ctx: AppContext) {
             val r = call.receive<WalkInRequest>()
             val order = ctx.orders.walkIn(tenant, actor, WalkIn(r.locationId, r.itemIds, r.variantKey, parseInstant(r.startsAt), r.customerName, r.customerPhone))
             call.respond(HttpStatusCode.Created, order.dto(tenant, actor))
+        }
+
+        /** Counter check-in by the booking code shown on the customer's phone (typed or scanned). */
+        post("/check-in") {
+            val actor = call.actor(); actor.requireProvider()
+            val tenant = call.tenantFor(ctx, actor)
+            val order = ctx.orders.checkInByCode(tenant, actor, call.receive<CheckInRequest>().code)
+            call.respond(order.dto(tenant, actor))
+        }
+
+        get("/tickets") {
+            val actor = call.actor(); actor.requireProvider()
+            call.respond(ctx.repos.tickets.byProvider(actor.providerId!!).map { t -> t.dto(ctx.repos.orders.byId(t.orderId)) })
         }
 
         // ---- staff and money (owner + PIN) ----
@@ -258,6 +271,44 @@ fun Route.adminRoutes(ctx: AppContext) {
             val tenant = call.tenantFor(ctx, actor)
             val month = call.request.queryParameters["month"]?.let { runCatching { YearMonth.parse(it) }.getOrNull() } ?: YearMonth.now()
             call.respond(ctx.admin.billing(tenant, month))
+        }
+
+        get("/tickets") {
+            val actor = call.actor(); actor.requireBackoffice()
+            val status = call.request.queryParameters["status"]?.let { runCatching { TicketStatus.valueOf(it) }.getOrNull() }
+            call.respond(ctx.repos.tickets.list(actor.tenantId, status).map { t -> t.dto(ctx.repos.orders.byId(t.orderId)) })
+        }
+
+        post("/tickets/{id}/resolve") {
+            val actor = call.actor(); actor.requireBackoffice()
+            val tenant = call.tenantFor(ctx, actor)
+            val r = call.receive<ResolveTicketRequest>()
+            val t = ctx.support.resolve(tenant, actor, call.pathId(), r.uphold, r.refundMinor, r.note)
+            call.respond(t.dto(ctx.repos.orders.byId(t.orderId)))
+        }
+
+        get("/promos") {
+            val actor = call.actor(); actor.requireBackoffice()
+            call.respond(ctx.repos.promos.list(actor.tenantId).map { it.dto() })
+        }
+
+        post("/promos") {
+            val actor = call.actor(); actor.require(Role.ADMIN)
+            val p = call.receive<PromoDto>()
+            val kind = runCatching { PromoKind.valueOf(p.kind) }.getOrElse { throw invalid("Kind must be FLAT or PERCENT") }
+            if (p.code.isBlank() || p.value <= 0) throw invalid("Give the code and a discount")
+            if (kind == PromoKind.PERCENT && p.value > 10_000) throw invalid("A percentage cannot be over 100%")
+            val promo = PromoCode(actor.tenantId, p.code.trim().uppercase(), kind, p.value, p.maxDiscountMinor, p.minSubtotalMinor, null, p.expiresAt?.let(::parseInstant), p.usageLimit, p.perUserLimit, p.active, p.description)
+            ctx.repos.promos.save(promo)
+            ctx.auditor.log(actor, "PROMO_SAVED", "promo", promo.code)
+            call.respond(HttpStatusCode.Created, promo.dto())
+        }
+
+        put("/promos/{code}/active") {
+            val actor = call.actor(); actor.require(Role.ADMIN)
+            val promo = ctx.repos.promos.byCode(actor.tenantId, call.pathId("code").uppercase()) ?: throw notFound("Promo")
+            ctx.repos.promos.save(promo.copy(active = call.receive<ActiveRequest>().active))
+            call.respond(HttpStatusCode.NoContent)
         }
 
         get("/config") {

@@ -58,6 +58,7 @@ object Locations : Table("locations") {
     val photoUrl = varchar("photo_url", 500).nullable()
     val ratingAvg = double("rating_avg")
     val ratingCount = integer("rating_count")
+    val phone = varchar("phone", 32).nullable()
     override val primaryKey = PrimaryKey(id)
 }
 
@@ -114,6 +115,10 @@ object Orders : Table("orders") {
     val payoutId = varchar("payout_id", 36).nullable()
     val createdAt = long("created_at")
     val updatedAt = long("updated_at")
+    val discountMinor = long("discount_minor")
+    val promoCode = varchar("promo_code", 40).nullable()
+    val reminded = bool("reminded")
+    val reschedules = integer("reschedules")
     override val primaryKey = PrimaryKey(id)
 }
 
@@ -174,6 +179,7 @@ object Reviews : Table("reviews") {
     val rating = integer("rating")
     val comment = text("comment")
     val createdAt = long("created_at")
+    val tags = text("tags")
     override val primaryKey = PrimaryKey(id)
 }
 
@@ -207,4 +213,75 @@ object IdempotencyKeys : Table("idempotency_keys") {
     val response = text("response")
     val createdAt = long("created_at")
     override val primaryKey = PrimaryKey(tenantId, scope, idemKey)
+}
+
+object PromoCodes : Table("promo_codes") {
+    val tenantId = varchar("tenant_id", 36)
+    val code = varchar("code", 40)
+    val kind = varchar("kind", 16)
+    val discountValue = long("discount_value")
+    val maxDiscountMinor = long("max_discount_minor").nullable()
+    val minSubtotalMinor = long("min_subtotal_minor")
+    val startsAt = long("starts_at").nullable()
+    val expiresAt = long("expires_at").nullable()
+    val usageLimit = integer("usage_limit").nullable()
+    val perUserLimit = integer("per_user_limit")
+    val active = bool("active")
+    val description = varchar("description", 200)
+    override val primaryKey = PrimaryKey(tenantId, code)
+}
+
+object Favorites : Table("favorites") {
+    val userId = varchar("user_id", 36)
+    val locationId = varchar("location_id", 36)
+    val createdAt = long("created_at")
+    override val primaryKey = PrimaryKey(userId, locationId)
+}
+
+object SavedPlaces : Table("saved_places") {
+    val id = varchar("id", 36)
+    val userId = varchar("user_id", 36)
+    val label = varchar("label", 40)
+    val address = varchar("address", 300)
+    val lat = double("lat")
+    val lng = double("lng")
+    override val primaryKey = PrimaryKey(id)
+}
+
+object Tickets : Table("tickets") {
+    val id = varchar("id", 36)
+    val tenantId = varchar("tenant_id", 36)
+    val orderId = varchar("order_id", 36)
+    val userId = varchar("user_id", 36)
+    val providerId = varchar("provider_id", 36)
+    val category = varchar("category", 40)
+    val description = text("description")
+    val photos = text("photos")
+    val status = varchar("status", 20)
+    val resolutionNote = text("resolution_note").nullable()
+    val refundMinor = long("refund_minor")
+    val createdAt = long("created_at")
+    val resolvedAt = long("resolved_at").nullable()
+    override val primaryKey = PrimaryKey(id)
+}
+
+object Notifications : Table("notifications") {
+    val id = varchar("id", 36)
+    val tenantId = varchar("tenant_id", 36)
+    val userId = varchar("user_id", 36)
+    val title = varchar("title", 200)
+    val body = text("body")
+    val orderId = varchar("order_id", 36).nullable()
+    val isRead = bool("is_read")
+    val createdAt = long("created_at")
+    override val primaryKey = PrimaryKey(id)
+}
+
+object Devices : Table("devices") {
+    val token = varchar("token", 300)
+    val tenantId = varchar("tenant_id", 36)
+    val userId = varchar("user_id", 36)
+    val platform = varchar("platform", 16)
+    val createdAt = long("created_at")
+    override val primaryKey = PrimaryKey(token)
 }

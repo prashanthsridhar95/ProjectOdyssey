@@ -63,6 +63,7 @@ data class Location(
     val photoUrl: String? = null,
     val ratingAvg: Double = 0.0,
     val ratingCount: Int = 0,
+    val phone: String? = null,
 )
 
 data class CatalogItem(
@@ -113,13 +114,19 @@ data class Order(
     val payoutId: Id? = null,
     val createdAt: Instant,
     val updatedAt: Instant,
+    val discountMinor: Long = 0,
+    val promoCode: String? = null,
+    val reminded: Boolean = false,
+    val reschedules: Int = 0,
+    /** Not stored: true while a payment has been started but the bank has not confirmed yet. */
+    val paymentPending: Boolean = false,
 ) {
     val providerNetMinor get() = subtotalMinor - commissionMinor
 }
 
 data class OrderEvent(val orderId: Id, val from: String?, val to: String, val action: String, val actorId: Id?, val note: String?, val at: Instant)
 
-enum class PaymentStatus { CAPTURED, FAILED, REFUNDED, PARTIALLY_REFUNDED }
+enum class PaymentStatus { PENDING, CAPTURED, FAILED, REFUNDED, PARTIALLY_REFUNDED }
 
 data class Payment(val id: Id, val tenantId: Id, val orderId: Id, val amountMinor: Long, val refundedMinor: Long, val status: PaymentStatus, val method: String, val gatewayRef: String?, val createdAt: Instant)
 
@@ -127,13 +134,32 @@ data class LedgerEntry(val id: Id, val tenantId: Id, val orderId: Id?, val txnId
 
 data class Payout(val id: Id, val tenantId: Id, val providerId: Id, val amountMinor: Long, val orderCount: Int, val status: String, val createdAt: Instant)
 
-data class Review(val id: Id, val tenantId: Id, val orderId: Id, val locationId: Id, val customerName: String, val rating: Int, val comment: String, val createdAt: Instant)
+data class Review(val id: Id, val tenantId: Id, val orderId: Id, val locationId: Id, val customerName: String, val rating: Int, val comment: String, val createdAt: Instant, val tags: List<String> = emptyList())
 
 data class Asset(val id: Id, val tenantId: Id, val ownerUserId: Id, val kind: String, val label: String, val attributes: Map<String, String>)
 
 data class AuditEntry(val id: Id, val tenantId: Id, val actorId: Id?, val actorRole: String, val action: String, val entity: String, val entityId: String?, val detail: String, val at: Instant)
 
 data class Slot(val startsAt: Instant, val endsAt: Instant, val free: Int, val bookable: Boolean)
+
+enum class PromoKind { PERCENT, FLAT }
+
+/** A discount the tenant funds. PERCENT value is in basis points; FLAT is minor units. */
+data class PromoCode(
+    val tenantId: Id, val code: String, val kind: PromoKind, val value: Long, val maxDiscountMinor: Long? = null, val minSubtotalMinor: Long = 0,
+    val startsAt: Instant? = null, val expiresAt: Instant? = null, val usageLimit: Int? = null, val perUserLimit: Int = 1, val active: Boolean = true, val description: String = "",
+)
+
+data class SavedPlace(val id: Id, val userId: Id, val label: String, val address: String, val lat: Double, val lng: Double)
+
+enum class TicketStatus { OPEN, UPHELD, REJECTED }
+
+data class Ticket(
+    val id: Id, val tenantId: Id, val orderId: Id, val userId: Id, val providerId: Id, val category: String, val description: String, val photos: List<String>,
+    val status: TicketStatus, val resolutionNote: String?, val refundMinor: Long, val createdAt: Instant, val resolvedAt: Instant? = null,
+)
+
+data class Notification(val id: Id, val tenantId: Id, val userId: Id, val title: String, val body: String, val orderId: Id?, val read: Boolean, val createdAt: Instant)
 
 class DomainException(val code: String, override val message: String, val status: Int = 400) : RuntimeException(message)
 

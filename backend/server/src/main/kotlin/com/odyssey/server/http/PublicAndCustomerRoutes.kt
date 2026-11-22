@@ -45,8 +45,9 @@ fun Route.publicRoutes(ctx: AppContext) {
         val lng = p["lng"]?.toDoubleOrNull() ?: throw invalid("lng is required")
         val query = SearchQuery(
             lat = lat, lng = lng, radiusKm = p["radiusKm"]?.toDoubleOrNull() ?: 15.0,
-            sort = when (p["sort"]?.lowercase()) { "rating" -> Sort.RATING; "price" -> Sort.PRICE; else -> Sort.DISTANCE },
-            text = p["q"], variantKey = p["variant"], maxPriceMinor = p["maxPrice"]?.toLongOrNull(),
+            sort = when (p["sort"]?.lowercase()) { "rating" -> Sort.RATING; "price" -> Sort.PRICE; "earliest" -> Sort.EARLIEST; else -> Sort.DISTANCE },
+            text = p["q"], variantKey = p["variant"], maxPriceMinor = p["maxPrice"]?.toLongOrNull(), minPriceMinor = p["minPrice"]?.toLongOrNull(),
+            minRating = p["minRating"]?.toDoubleOrNull() ?: 0.0, services = p["services"]?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() }?.toSet() ?: emptySet(),
             openNow = p["openNow"] == "true", amenities = p["amenities"]?.split(",")?.filter { it.isNotBlank() }?.toSet() ?: emptySet(),
         )
         call.respond(ctx.discovery.search(tenant, query).map { it.dto() })
@@ -106,7 +107,9 @@ fun Route.customerRoutes(ctx: AppContext) {
             if (v.isNullOrBlank()) throw invalid("${f.label} is required")
             if (f.options.isNotEmpty() && v !in f.options) throw invalid("${f.label} is not valid")
         }
-        val label = req.label?.takeIf { it.isNotBlank() } ?: req.attributes.values.joinToString(" · ")
+        val typeLabel = tenant.config.variants.options.firstOrNull { it.key == req.attributes["vehicleType"] }?.label
+        val core = listOfNotNull(typeLabel, req.attributes["plate"]).joinToString(" · ").ifBlank { req.attributes.values.joinToString(" · ") }
+        val label = req.label?.takeIf { it.isNotBlank() } ?: req.attributes["nickname"]?.takeIf { it.isNotBlank() }?.let { "$it ($core)" } ?: core
         val asset = Asset(ctx.ids.newId(), tenant.id, actor.userId!!, kind.kind, label, req.attributes)
         ctx.repos.assets.insert(asset)
         call.respond(HttpStatusCode.Created, asset.dto())
@@ -125,7 +128,7 @@ fun Route.customerRoutes(ctx: AppContext) {
         val customer = ctx.repos.users.byId(actor.userId!!) ?: throw notFound("User")
         val req = call.receive<PlaceOrderRequest>()
         val dto = call.idempotent<OrderDto>(ctx, tenant.id, "order:place:${customer.id}") {
-            ctx.orders.place(tenant, customer, PlaceOrder(req.locationId, req.itemIds, req.variantKey, parseInstant(req.startsAt), req.assetId)).dto(tenant, actor)
+            ctx.orders.place(tenant, customer, PlaceOrder(req.locationId, req.itemIds, req.variantKey, parseInstant(req.startsAt), req.assetId, req.promoCode)).dto(tenant, actor)
         }
         call.respond(HttpStatusCode.Created, dto)
     }
@@ -139,7 +142,7 @@ fun Route.customerRoutes(ctx: AppContext) {
         val orderId = call.pathId()
         val key = call.request.header("Idempotency-Key") ?: ctx.ids.newId()
         val dto = call.idempotent<OrderDto>(ctx, tenant.id, "order:pay:$orderId") {
-            ctx.orders.pay(tenant, customer, orderId, req.method, req.simulate, key).dto(tenant, actor)
+            ctx.orders.pay(tenant, customer, orderId, req.method, req.simulate, key).let { it.dto(tenant, actor, loc = ctx.repos.locations.byId(it.locationId)) }
         }
         call.respond(dto)
     }
@@ -158,7 +161,7 @@ fun Route.customerRoutes(ctx: AppContext) {
         val tenant = call.tenantFor(ctx, actor)
         val order = ctx.orders.get(tenant, actor, call.pathId())
         val reviewed = ctx.repos.reviews.byOrder(order.id) != null
-        call.respond(OrderDetailDto(order.dto(tenant, actor, reviewed), ctx.orders.events(order.id).map { OrderEventDto(it.from, it.to, it.action, it.note, it.at.iso()) }))
+        call.respond(OrderDetailDto(order.dto(tenant, actor, reviewed, ctx.repos.locations.byId(order.locationId)), ctx.orders.events(order.id).map { OrderEventDto(it.from, it.to, it.action, it.note, it.at.iso()) }))
     }
 
     /** One endpoint for every state change; the order flow decides who may do what. */
@@ -177,7 +180,88 @@ fun Route.customerRoutes(ctx: AppContext) {
         val tenant = call.tenantFor(ctx, actor)
         val customer = ctx.repos.users.byId(actor.userId!!) ?: throw notFound("User")
         val req = call.receive<ReviewRequest>()
-        call.respond(HttpStatusCode.Created, ctx.orders.review(tenant, customer, call.pathId(), req.rating, req.comment).dto())
+        call.respond(HttpStatusCode.Created, ctx.orders.review(tenant, customer, call.pathId(), req.rating, req.comment, req.tags).dto())
+    }
+
+    post("/quote") {
+        val actor = call.actor()
+        val tenant = call.tenantFor(ctx, actor)
+        val customer = ctx.repos.users.byId(actor.userId!!)
+        val req = call.receive<QuoteRequest>()
+        val (q, promo) = ctx.orders.quote(tenant, customer, req.locationId, req.itemIds, req.variantKey, req.promoCode)
+        call.respond(QuoteDto(q.subtotalMinor, q.taxMinor, q.feeMinor, q.discountMinor, q.totalMinor, promo?.code, promo?.description))
+    }
+
+    post("/orders/{id}/payment/check") {
+        val actor = call.actor(); actor.require(Role.CUSTOMER)
+        val tenant = call.tenantFor(ctx, actor)
+        val customer = ctx.repos.users.byId(actor.userId!!) ?: throw notFound("User")
+        call.respond(ctx.orders.checkPayment(tenant, customer, call.pathId()).let { it.dto(tenant, actor, loc = ctx.repos.locations.byId(it.locationId)) })
+    }
+
+    post("/orders/{id}/reschedule") {
+        val actor = call.actor(); actor.require(Role.CUSTOMER)
+        val tenant = call.tenantFor(ctx, actor)
+        val customer = ctx.repos.users.byId(actor.userId!!) ?: throw notFound("User")
+        val req = call.receive<RescheduleRequest>()
+        call.respond(ctx.orders.reschedule(tenant, customer, call.pathId(), parseInstant(req.startsAt)).let { it.dto(tenant, actor, loc = ctx.repos.locations.byId(it.locationId)) })
+    }
+
+    post("/orders/{id}/report") {
+        val actor = call.actor(); actor.require(Role.CUSTOMER)
+        val tenant = call.tenantFor(ctx, actor)
+        val customer = ctx.repos.users.byId(actor.userId!!) ?: throw notFound("User")
+        val req = call.receive<ReportRequest>()
+        call.respond(HttpStatusCode.Created, ctx.support.report(tenant, customer, call.pathId(), req.category, req.description, req.photos).dto())
+    }
+
+    get("/tickets") {
+        val actor = call.actor(); actor.require(Role.CUSTOMER)
+        call.respond(ctx.repos.tickets.byUser(actor.userId!!).map { t -> t.dto(ctx.repos.orders.byId(t.orderId)) })
+    }
+
+    // ---- favourites, saved places, notifications ----
+    get("/favorites") {
+        val actor = call.actor(); actor.require(Role.CUSTOMER)
+        val tenant = call.tenantFor(ctx, actor)
+        val q = call.request.queryParameters
+        val lat = q["lat"]?.toDoubleOrNull(); val lng = q["lng"]?.toDoubleOrNull()
+        val out = ctx.repos.favorites.ids(actor.userId!!).mapNotNull { id -> runCatching { ctx.discovery.detail(tenant, id, lat, lng, null).summary.dto() }.getOrNull() }
+        call.respond(out)
+    }
+    put("/favorites/{id}") {
+        val actor = call.actor(); actor.require(Role.CUSTOMER)
+        val tenant = call.tenantFor(ctx, actor)
+        val loc = ctx.repos.locations.byId(call.pathId())?.takeIf { it.tenantId == tenant.id } ?: throw notFound("Place")
+        ctx.repos.favorites.add(actor.userId!!, loc.id, ctx.clock.now())
+        call.respond(HttpStatusCode.NoContent)
+    }
+    delete("/favorites/{id}") {
+        val actor = call.actor(); actor.require(Role.CUSTOMER)
+        ctx.repos.favorites.remove(actor.userId!!, call.pathId())
+        call.respond(HttpStatusCode.NoContent)
+    }
+
+    get("/me/places") { call.respond(ctx.repos.places.list(call.actor().userId!!).map { it.dto() }) }
+    put("/me/places") {
+        val actor = call.actor()
+        val req = call.receive<SavedPlaceDto>()
+        if (req.label.isBlank() || req.address.isBlank()) throw invalid("Give the place a name and an address")
+        ctx.repos.places.save(SavedPlace(ctx.ids.newId(), actor.userId!!, req.label.trim().take(40), req.address.trim().take(300), req.lat, req.lng))
+        call.respond(ctx.repos.places.list(actor.userId!!).map { it.dto() })
+    }
+    delete("/me/places/{label}") {
+        ctx.repos.places.delete(call.actor().userId!!, call.pathId("label"))
+        call.respond(HttpStatusCode.NoContent)
+    }
+
+    get("/notifications") { call.respond(ctx.repos.notifications.list(call.actor().userId!!, 50).map { it.dto() }) }
+    post("/notifications/read") { ctx.repos.notifications.markRead(call.actor().userId!!); call.respond(HttpStatusCode.NoContent) }
+    post("/devices") {
+        val actor = call.actor()
+        val req = call.receive<DeviceRequest>()
+        ctx.repos.devices.register(actor.tenantId, actor.userId!!, req.token.take(300), req.platform.take(16), ctx.clock.now())
+        call.respond(HttpStatusCode.NoContent)
     }
 
     post("/provider/apply") {

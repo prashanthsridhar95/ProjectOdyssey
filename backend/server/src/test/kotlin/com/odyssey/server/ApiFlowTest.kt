@@ -73,6 +73,7 @@ private class ApiScope(val ctx: AppContext, val client: HttpClient) {
         return post("/v1/orders", PlaceOrderRequest(loc.location.id, listOf(item.id), variant, startsAt), token, idem = idem)
     }
 
+    suspend fun delete(path: String, token: String? = null): HttpResponse = client.delete(path) { auth(token, null) }
     suspend fun pay(token: String, orderId: String, simulate: String? = null): HttpResponse = post("/v1/orders/$orderId/pay", PayRequest("UPI", simulate), token)
     suspend fun act(token: String, orderId: String, action: String, note: String? = null): HttpResponse = post("/v1/orders/$orderId/actions", ActionRequest(action, note), token)
 }
@@ -107,7 +108,8 @@ class ApiFlowTest {
         assertEquals("PENDING_PAYMENT", order.status)
         val price = basic.prices.getValue("SEDAN")
         assertEquals(price, order.subtotalMinor)
-        assertEquals(price + price * 18 / 100, order.totalMinor, "18% tax on the service amount")
+        val fee = 2000L
+        assertEquals(price + fee + Math.round((price + fee) * 0.18), order.totalMinor, "18% tax on the service plus the convenience fee")
         assertNull(order.commissionBps, "customers never see commission")
 
         val paid: OrderDto = pay(customer, order.id).also { assertEquals(HttpStatusCode.OK, it.status, it.bodyAsText()) }.body()
@@ -378,6 +380,183 @@ class ApiFlowTest {
         val ok = post("/v1/assets", AssetRequest(null, mapOf("vehicleType" to "SEDAN", "plate" to "KA01AB1234")), customer)
         assertEquals(HttpStatusCode.Created, ok.status)
         assertEquals(1, get("/v1/assets", customer).body<List<AssetDto>>().size)
+    }
+
+    // ---- customer features from the Rinse design ----
+
+    @Test
+    fun `a promo code discounts the booking, funds it from commission and can be used once`() = withApi {
+        val customer = login("+919876501001", "Promo")
+        val detail = detail(location("Sparkle").id)
+        val item = detail.items.first { it.name == "Basic wash" }
+        val price = item.prices.getValue("SEDAN")
+        val q: QuoteDto = post("/v1/quote", QuoteRequest(detail.location.id, listOf(item.id), "SEDAN", "firstwash"), customer).body()
+        assertEquals(10_000, q.discountMinor)
+        assertEquals(price + 2000 + Math.round((price + 2000) * 0.18) - 10_000, q.totalMinor)
+
+        val start = slot(detail.location.id, listOf(item.id))
+        val placed = post("/v1/orders", PlaceOrderRequest(detail.location.id, listOf(item.id), "SEDAN", start, null, "FIRSTWASH"), customer)
+        assertEquals(HttpStatusCode.Created, placed.status, placed.bodyAsText())
+        val order: OrderDto = placed.body()
+        assertEquals(q.totalMinor, order.totalMinor)
+        pay(customer, order.id)
+        val owner = login(OWNER1)
+        act(owner, order.id, "START"); act(owner, order.id, "COMPLETE")
+        assertEquals(0, ctx.repos.ledger.totals(ctx.tenant("carwash").id, null, null).values.sum(), "ledger balances with a promo")
+
+        val again = post("/v1/quote", QuoteRequest(detail.location.id, listOf(item.id), "SEDAN", "FIRSTWASH"), customer)
+        assertEquals(HttpStatusCode.BadRequest, again.status, "one use per customer")
+        val bike = detail.items.first { it.name == "Basic wash" }
+        val cheap = post("/v1/quote", QuoteRequest(detail.location.id, listOf(bike.id), "BIKE", "FIRSTWASH"), login("+919876501002", "Cheap"))
+        assertEquals(HttpStatusCode.BadRequest, cheap.status, "minimum spend applies")
+        assertEquals(HttpStatusCode.BadRequest, post("/v1/quote", QuoteRequest(detail.location.id, listOf(item.id), "SEDAN", "NOPE"), login("+919876501003", "X")).status)
+    }
+
+    @Test
+    fun `a booking can be moved twice before the cutoff and not a third time`() = withApi {
+        val customer = login("+919876501011", "Mover")
+        val detail = detail(location("Sparkle").id)
+        val item = detail.items.first { it.name == "Basic wash" }
+        val order: OrderDto = place(customer, detail, "Basic wash", slot(detail.location.id, listOf(item.id))).body()
+        pay(customer, order.id)
+        var current = order.startsAt
+        repeat(2) { i ->
+            val target = slot(detail.location.id, listOf(item.id), skip = 3 + i * 2)
+            val res = post("/v1/orders/${order.id}/reschedule", RescheduleRequest(target), customer)
+            assertEquals(HttpStatusCode.OK, res.status, res.bodyAsText())
+            val moved = res.body<OrderDto>()
+            assertEquals(Instant.parse(target), Instant.parse(moved.startsAt))
+            assertEquals(i + 1, moved.reschedules)
+            current = moved.startsAt
+        }
+        val third = post("/v1/orders/${order.id}/reschedule", RescheduleRequest(slot(detail.location.id, listOf(item.id), skip = 9)), customer)
+        assertEquals("limit_reached", third.body<ErrorBody>().code)
+        assertNotEquals(order.startsAt, current)
+        val owner = login(OWNER1)
+        assertTrue(ctx.repos.notifications.list(ctx.repos.users.byPhone(ctx.tenant("carwash").id, OWNER1)!!.id, 20).any { it.title.contains("moved") }, "the vendor is told")
+        assertNotNull(owner)
+    }
+
+    @Test
+    fun `a slow bank leaves the payment pending until the customer checks again`() = withApi {
+        val customer = login("+919876501021", "Slow")
+        val detail = detail(location("Sparkle").id)
+        val order: OrderDto = place(customer, detail, "Basic wash", slot(detail.location.id, listOf(detail.items.first { it.name == "Basic wash" }.id))).body()
+        val pending: OrderDto = pay(customer, order.id, simulate = "pending").body()
+        assertEquals("PENDING_PAYMENT", pending.status)
+        assertTrue(pending.paymentPending)
+        val first: OrderDto = postEmpty("/v1/orders/${order.id}/payment/check", customer).body()
+        assertTrue(first.paymentPending && first.status == "PENDING_PAYMENT", "still waiting on the first check")
+        val second: OrderDto = postEmpty("/v1/orders/${order.id}/payment/check", customer).body()
+        assertEquals("CONFIRMED", second.status)
+        assertEquals(1, ctx.repos.ledger.forOrder(order.id).count { it.account == "gateway" })
+    }
+
+    @Test
+    fun `counter check-in by code moves the booking through checked in and in progress`() = withApi {
+        val customer = login("+919876501031", "Checkin")
+        val detail = detail(location("Sparkle").id)
+        val order: OrderDto = place(customer, detail, "Basic wash", slot(detail.location.id, listOf(detail.items.first { it.name == "Basic wash" }.id))).body()
+        pay(customer, order.id)
+        val staff = post("/v1/auth/pin", StaffLoginRequest("+919000000201", Seeder.STAFF_PIN)).body<AuthResponse>().accessToken
+        val scanned = post("/v1/provider/check-in", CheckInRequest(" ${order.code.lowercase()} "), staff)
+        assertEquals(HttpStatusCode.OK, scanned.status, scanned.bodyAsText())
+        assertEquals("CHECKED_IN", scanned.body<OrderDto>().status)
+        assertEquals(HttpStatusCode.NotFound, post("/v1/provider/check-in", CheckInRequest("ZZZZZZ"), staff).status)
+        assertEquals("IN_PROGRESS", act(staff, order.id, "START").body<OrderDto>().status)
+        val detailView: OrderDetailDto = get("/v1/orders/${order.id}", customer).body()
+        assertEquals(listOf("PENDING_PAYMENT", "PAID", "CONFIRMED", "CHECKED_IN", "IN_PROGRESS"), detailView.events.map { it.to })
+        assertNotNull(detailView.order.locationPhone)
+    }
+
+    @Test
+    fun `customers get notified as the booking progresses and the vendor hears about new bookings`() = withApi {
+        val customer = login("+919876501041", "Notified")
+        val detail = detail(location("Sparkle").id)
+        val order: OrderDto = place(customer, detail, "Basic wash", slot(detail.location.id, listOf(detail.items.first { it.name == "Basic wash" }.id))).body()
+        pay(customer, order.id)
+        val owner = login(OWNER1)
+        act(owner, order.id, "START"); act(owner, order.id, "COMPLETE")
+        val inbox: List<NotificationDto> = get("/v1/notifications", customer).body()
+        assertEquals(listOf("Your car is ready", "Wash in progress", "You're booked"), inbox.map { it.title })
+        assertTrue(inbox.all { !it.read })
+        postEmpty("/v1/notifications/read", customer)
+        assertTrue(get("/v1/notifications", customer).body<List<NotificationDto>>().all { it.read })
+        assertTrue(get("/v1/notifications", owner).body<List<NotificationDto>>().any { it.title.startsWith("New") })
+    }
+
+    @Test
+    fun `favourites and saved places`() = withApi {
+        val customer = login("+919876501051", "Fav")
+        val spot = location("Sparkle")
+        assertEquals(HttpStatusCode.NoContent, client.put("/v1/favorites/${spot.id}") { header(HttpHeaders.Authorization, "Bearer $customer") }.status)
+        assertEquals(listOf(spot.id), get("/v1/favorites?lat=12.97&lng=77.6", customer).body<List<LocationSummaryDto>>().map { it.id })
+        delete("/v1/favorites/${spot.id}", customer)
+        assertTrue(get("/v1/favorites", customer).body<List<LocationSummaryDto>>().isEmpty())
+        val places: List<SavedPlaceDto> = put("/v1/me/places", SavedPlaceDto("Home", "12th Main, Indiranagar", 12.97, 77.64), customer).body()
+        assertEquals("Home", places.single().label)
+        assertEquals("Office", put("/v1/me/places", SavedPlaceDto("Office", "MG Road", 12.97, 77.6), customer).body<List<SavedPlaceDto>>().first { it.label == "Office" }.label)
+    }
+
+    @Test
+    fun `search filters by service, rating and sorts by earliest slot`() = withApi {
+        val q = "lat=12.97&lng=77.6&radiusKm=30"
+        val top = get("/v1/locations?$q&minRating=4.7", null).body<List<LocationSummaryDto>>()
+        assertEquals(listOf("Shine Street HSR"), top.map { it.name })
+        assertEquals(4, get("/v1/locations?$q&services=Foam wash", null).body<List<LocationSummaryDto>>().size)
+        assertEquals(0, get("/v1/locations?$q&services=Rocket polish", null).body<List<LocationSummaryDto>>().size)
+        assertEquals(4, get("/v1/locations?$q&sort=earliest", null).body<List<LocationSummaryDto>>().size)
+        val cheap = get("/v1/locations?$q&variant=SEDAN&maxPrice=30000", null).body<List<LocationSummaryDto>>()
+        assertTrue(cheap.all { (it.priceFromMinor ?: Long.MAX_VALUE) <= 30000 })
+    }
+
+    @Test
+    fun `a problem report can be upheld with a partial refund taken from the vendor payable`() = withApi {
+        val customer = login("+919876501061", "Reporter")
+        val detail = detail(location("Sparkle").id)
+        val order: OrderDto = place(customer, detail, "Basic wash", slot(detail.location.id, listOf(detail.items.first { it.name == "Basic wash" }.id))).body()
+        assertEquals(HttpStatusCode.Conflict, post("/v1/orders/${order.id}/report", ReportRequest("QUALITY", "x"), customer).status, "nothing to report before payment")
+        pay(customer, order.id)
+        val owner = login(OWNER1)
+        act(owner, order.id, "START"); act(owner, order.id, "COMPLETE")
+        assertEquals(HttpStatusCode.BadRequest, post("/v1/orders/${order.id}/report", ReportRequest("OTHER", "x"), customer).status)
+        val created = post("/v1/orders/${order.id}/report", ReportRequest("QUALITY", "Rear bumper still muddy", listOf("data:image/png;base64,AAAA")), customer)
+        assertEquals(HttpStatusCode.Created, created.status, created.bodyAsText())
+        val ticket = created.body<TicketDto>()
+        assertEquals("OPEN", ticket.status)
+        assertTrue(get("/v1/provider/tickets", owner).body<List<TicketDto>>().any { it.id == ticket.id })
+
+        val admin = login(ADMIN)
+        assertTrue(get("/v1/admin/tickets?status=OPEN", admin).body<List<TicketDto>>().any { it.id == ticket.id })
+        val payableBefore = ctx.repos.ledger.payableFor(order.id)
+        val resolved = post("/v1/admin/tickets/${ticket.id}/resolve", ResolveTicketRequest(true, 10_000, "Refunded part of the wash"), admin)
+        assertEquals(HttpStatusCode.OK, resolved.status, resolved.bodyAsText())
+        assertEquals("UPHELD", resolved.body<TicketDto>().status)
+        assertEquals(payableBefore - 10_000, ctx.repos.ledger.payableFor(order.id))
+        assertEquals(10_000, ctx.repos.payments.byOrder(order.id)!!.refundedMinor)
+        assertEquals(0, ctx.repos.ledger.totals(ctx.tenant("carwash").id, null, null).values.sum())
+        assertEquals(HttpStatusCode.Conflict, post("/v1/admin/tickets/${ticket.id}/resolve", ResolveTicketRequest(false, 0, "again"), admin).status)
+        assertTrue(get("/v1/notifications", customer).body<List<NotificationDto>>().any { it.title.contains("upheld") })
+    }
+
+    @Test
+    fun `review tags are stored and admin promos can be created and switched off`() = withApi {
+        val customer = login("+919876501071", "Tagger")
+        val detail = detail(location("Sparkle").id)
+        val order: OrderDto = place(customer, detail, "Basic wash", slot(detail.location.id, listOf(detail.items.first { it.name == "Basic wash" }.id))).body()
+        pay(customer, order.id)
+        val owner = login(OWNER1)
+        act(owner, order.id, "START"); act(owner, order.id, "COMPLETE")
+        val review = post("/v1/orders/${order.id}/review", ReviewRequest(4, "Good", listOf("On time", "Spotless exterior")), customer)
+        assertEquals(listOf("On time", "Spotless exterior"), review.body<ReviewDto>().tags)
+
+        val admin = login(ADMIN)
+        assertEquals(HttpStatusCode.Created, post("/v1/admin/promos", PromoDto("SAVE50", "FLAT", 5000, minSubtotalMinor = 10000, description = "₹50 off"), admin).status)
+        assertEquals(HttpStatusCode.BadRequest, post("/v1/admin/promos", PromoDto("BAD", "PERCENT", 20000), admin).status, "over 100% is refused")
+        val item = detail.items.first { it.name == "Basic wash" }
+        assertEquals(5000, post("/v1/quote", QuoteRequest(detail.location.id, listOf(item.id), "SEDAN", "save50"), customer).body<QuoteDto>().discountMinor)
+        put("/v1/admin/promos/SAVE50/active", ActiveRequest(false), admin)
+        assertEquals(HttpStatusCode.BadRequest, post("/v1/quote", QuoteRequest(detail.location.id, listOf(item.id), "SEDAN", "SAVE50"), customer).status)
     }
 }
 

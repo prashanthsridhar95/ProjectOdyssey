@@ -115,14 +115,14 @@ class Persistence(private val db: Database) {
         private fun map(r: ResultRow) = Location(
             r[Locations.id], r[Locations.tenantId], r[Locations.providerId], r[Locations.name], r[Locations.address], r[Locations.lat], r[Locations.lng], r[Locations.timezone],
             LocalTime.parse(r[Locations.openTime]), LocalTime.parse(r[Locations.closeTime]), r[Locations.slotMinutes], r[Locations.capacity], r[Locations.autoAccept], r[Locations.isOpen],
-            json.decodeFromString(ListSerializer(String.serializer()), r[Locations.amenities]), r[Locations.photoUrl], r[Locations.ratingAvg], r[Locations.ratingCount],
+            json.decodeFromString(ListSerializer(String.serializer()), r[Locations.amenities]), r[Locations.photoUrl], r[Locations.ratingAvg], r[Locations.ratingCount], r[Locations.phone],
         )
         private fun bind(it: org.jetbrains.exposed.sql.statements.UpdateBuilder<*>, l: Location) {
             it[Locations.id] = l.id; it[Locations.tenantId] = l.tenantId; it[Locations.providerId] = l.providerId; it[Locations.name] = l.name; it[Locations.address] = l.address
             it[Locations.lat] = l.lat; it[Locations.lng] = l.lng; it[Locations.timezone] = l.timezone; it[Locations.openTime] = l.openTime.toString(); it[Locations.closeTime] = l.closeTime.toString()
             it[Locations.slotMinutes] = l.slotMinutes; it[Locations.capacity] = l.capacity; it[Locations.autoAccept] = l.autoAccept; it[Locations.isOpen] = l.open
             it[Locations.amenities] = json.encodeToString(ListSerializer(String.serializer()), l.amenities); it[Locations.photoUrl] = l.photoUrl
-            it[Locations.ratingAvg] = l.ratingAvg; it[Locations.ratingCount] = l.ratingCount
+            it[Locations.ratingAvg] = l.ratingAvg; it[Locations.ratingCount] = l.ratingCount; it[Locations.phone] = l.phone
         }
         override fun byId(id: Id) = tx { Locations.selectAll().where { Locations.id eq id }.singleOrNull()?.let(::map) }
         override fun byProvider(providerId: Id) = tx { Locations.selectAll().where { Locations.providerId eq providerId }.map(::map) }
@@ -168,6 +168,7 @@ class Persistence(private val db: Database) {
             json.decodeFromString(lines, r[Orders.lines]).map { OrderLine(it.itemId, it.name, it.priceMinor, it.durationMinutes) },
             r[Orders.subtotalMinor], r[Orders.taxMinor], r[Orders.feeMinor], r[Orders.totalMinor], r[Orders.commissionBps], r[Orders.commissionMinor],
             r[Orders.holdExpiresAt]?.let(::at), r[Orders.cancellationReason], r[Orders.settled], r[Orders.payoutId], at(r[Orders.createdAt]), at(r[Orders.updatedAt]),
+            r[Orders.discountMinor], r[Orders.promoCode], r[Orders.reminded], r[Orders.reschedules],
         )
         private fun bind(it: org.jetbrains.exposed.sql.statements.UpdateBuilder<*>, o: Order) {
             it[Orders.id] = o.id; it[Orders.tenantId] = o.tenantId; it[Orders.code] = o.code; it[Orders.customerId] = o.customerId; it[Orders.customerName] = o.customerName
@@ -179,6 +180,7 @@ class Persistence(private val db: Database) {
             it[Orders.commissionBps] = o.commissionBps; it[Orders.commissionMinor] = o.commissionMinor; it[Orders.holdExpiresAt] = o.holdExpiresAt?.let(::ms)
             it[Orders.cancellationReason] = o.cancellationReason; it[Orders.settled] = o.settled; it[Orders.payoutId] = o.payoutId
             it[Orders.createdAt] = ms(o.createdAt); it[Orders.updatedAt] = ms(o.updatedAt)
+            it[Orders.discountMinor] = o.discountMinor; it[Orders.promoCode] = o.promoCode; it[Orders.reminded] = o.reminded; it[Orders.reschedules] = o.reschedules
         }
         override fun byId(id: Id) = tx { Orders.selectAll().where { Orders.id eq id }.singleOrNull()?.let(::map) }
         override fun insert(order: Order) = tx { Orders.insert { bind(it, order) }; Unit }
@@ -217,6 +219,16 @@ class Persistence(private val db: Database) {
             Orders.selectAll().where { (Orders.status eq state) and Orders.holdExpiresAt.isNotNull() and (Orders.holdExpiresAt less ms(now)) }.map(::map)
         }
         override fun settledUnpaid(providerId: Id) = tx { Orders.selectAll().where { (Orders.providerId eq providerId) and (Orders.settled eq true) and Orders.payoutId.isNull() }.map(::map) }
+        override fun byCode(tenantId: Id, code: String, providerId: Id?) = tx {
+            Orders.selectAll().where { (Orders.tenantId eq tenantId) and (Orders.code eq code) and (if (providerId == null) Op.TRUE else Orders.providerId eq providerId) }.orderBy(Orders.createdAt, SortOrder.DESC).firstOrNull()?.let(::map)
+        }
+        override fun countPromoUses(tenantId: Id, code: String, userId: Id?) = tx {
+            val dead = listOf("PENDING_PAYMENT", "EXPIRED", "CANCELLED", "REJECTED")
+            Orders.selectAll().where { (Orders.tenantId eq tenantId) and (Orders.promoCode eq code) and (Orders.status notInList dead) and (if (userId == null) Op.TRUE else Orders.customerId eq userId) }.count().toInt()
+        }
+        override fun dueForReminder(from: Instant, to: Instant, states: List<String>) = tx {
+            Orders.selectAll().where { (Orders.status inList states) and (Orders.reminded eq false) and (Orders.startsAt greaterEq ms(from)) and (Orders.startsAt less ms(to)) }.map(::map)
+        }
         override fun paidOrders(tenantId: Id, from: Instant, to: Instant, unpaidStates: List<String>) = tx {
             Orders.selectAll().where { (Orders.tenantId eq tenantId) and (Orders.createdAt greaterEq ms(from)) and (Orders.createdAt less ms(to)) and (Orders.status notInList unpaidStates) }.map(::map)
         }
@@ -260,8 +272,8 @@ class Persistence(private val db: Database) {
     }
 
     val reviews = object : ReviewRepo {
-        private fun map(r: ResultRow) = Review(r[Reviews.id], r[Reviews.tenantId], r[Reviews.orderId], r[Reviews.locationId], r[Reviews.customerName], r[Reviews.rating], r[Reviews.comment], at(r[Reviews.createdAt]))
-        override fun insert(review: Review) = tx { Reviews.insert { it[id] = review.id; it[tenantId] = review.tenantId; it[orderId] = review.orderId; it[locationId] = review.locationId; it[customerName] = review.customerName; it[rating] = review.rating; it[comment] = review.comment; it[createdAt] = ms(review.createdAt) }; Unit }
+        private fun map(r: ResultRow) = Review(r[Reviews.id], r[Reviews.tenantId], r[Reviews.orderId], r[Reviews.locationId], r[Reviews.customerName], r[Reviews.rating], r[Reviews.comment], at(r[Reviews.createdAt]), json.decodeFromString(ListSerializer(String.serializer()), r[Reviews.tags]))
+        override fun insert(review: Review) = tx { Reviews.insert { it[id] = review.id; it[tenantId] = review.tenantId; it[orderId] = review.orderId; it[locationId] = review.locationId; it[customerName] = review.customerName; it[rating] = review.rating; it[comment] = review.comment; it[createdAt] = ms(review.createdAt); it[tags] = json.encodeToString(ListSerializer(String.serializer()), review.tags) }; Unit }
         override fun byOrder(orderId: Id) = tx { Reviews.selectAll().where { Reviews.orderId eq orderId }.singleOrNull()?.let(::map) }
         override fun byLocation(locationId: Id, limit: Int) = tx { Reviews.selectAll().where { Reviews.locationId eq locationId }.orderBy(Reviews.createdAt, SortOrder.DESC).limit(limit).map(::map) }
     }
@@ -286,6 +298,71 @@ class Persistence(private val db: Database) {
         }
     }
 
+
+    val promos = object : PromoRepo {
+        private fun map(r: ResultRow) = PromoCode(r[PromoCodes.tenantId], r[PromoCodes.code], PromoKind.valueOf(r[PromoCodes.kind]), r[PromoCodes.discountValue], r[PromoCodes.maxDiscountMinor], r[PromoCodes.minSubtotalMinor], r[PromoCodes.startsAt]?.let(::at), r[PromoCodes.expiresAt]?.let(::at), r[PromoCodes.usageLimit], r[PromoCodes.perUserLimit], r[PromoCodes.active], r[PromoCodes.description])
+        override fun byCode(tenantId: Id, code: String) = tx { PromoCodes.selectAll().where { (PromoCodes.tenantId eq tenantId) and (PromoCodes.code eq code) }.singleOrNull()?.let(::map) }
+        override fun list(tenantId: Id) = tx { PromoCodes.selectAll().where { PromoCodes.tenantId eq tenantId }.map(::map) }
+        override fun save(promo: PromoCode) = tx {
+            PromoCodes.deleteWhere { (PromoCodes.tenantId eq promo.tenantId) and (PromoCodes.code eq promo.code) }
+            PromoCodes.insert {
+                it[tenantId] = promo.tenantId; it[code] = promo.code; it[kind] = promo.kind.name; it[discountValue] = promo.value; it[maxDiscountMinor] = promo.maxDiscountMinor; it[minSubtotalMinor] = promo.minSubtotalMinor
+                it[startsAt] = promo.startsAt?.let(::ms); it[expiresAt] = promo.expiresAt?.let(::ms); it[usageLimit] = promo.usageLimit; it[perUserLimit] = promo.perUserLimit; it[active] = promo.active; it[description] = promo.description
+            }; Unit
+        }
+    }
+
+    val favorites = object : FavoriteRepo {
+        override fun ids(userId: Id) = tx { Favorites.selectAll().where { Favorites.userId eq userId }.orderBy(Favorites.createdAt, SortOrder.DESC).map { it[Favorites.locationId] } }
+        override fun add(userId: Id, locationId: Id, at: Instant) = tx { if (Favorites.selectAll().where { (Favorites.userId eq userId) and (Favorites.locationId eq locationId) }.empty()) Favorites.insert { it[Favorites.userId] = userId; it[Favorites.locationId] = locationId; it[createdAt] = ms(at) }; Unit }
+        override fun remove(userId: Id, locationId: Id) = tx { Favorites.deleteWhere { (Favorites.userId eq userId) and (Favorites.locationId eq locationId) }; Unit }
+    }
+
+    val places = object : PlaceRepo {
+        private fun map(r: ResultRow) = SavedPlace(r[SavedPlaces.id], r[SavedPlaces.userId], r[SavedPlaces.label], r[SavedPlaces.address], r[SavedPlaces.lat], r[SavedPlaces.lng])
+        override fun list(userId: Id) = tx { SavedPlaces.selectAll().where { SavedPlaces.userId eq userId }.map(::map) }
+        override fun save(place: SavedPlace) = tx {
+            SavedPlaces.deleteWhere { (SavedPlaces.userId eq place.userId) and (SavedPlaces.label eq place.label) }
+            SavedPlaces.insert { it[id] = place.id; it[userId] = place.userId; it[label] = place.label; it[address] = place.address; it[lat] = place.lat; it[lng] = place.lng }; Unit
+        }
+        override fun delete(userId: Id, label: String) = tx { SavedPlaces.deleteWhere { (SavedPlaces.userId eq userId) and (SavedPlaces.label eq label) }; Unit }
+    }
+
+    val tickets = object : TicketRepo {
+        private val photos = ListSerializer(String.serializer())
+        private fun map(r: ResultRow) = Ticket(r[Tickets.id], r[Tickets.tenantId], r[Tickets.orderId], r[Tickets.userId], r[Tickets.providerId], r[Tickets.category], r[Tickets.description], json.decodeFromString(photos, r[Tickets.photos]), TicketStatus.valueOf(r[Tickets.status]), r[Tickets.resolutionNote], r[Tickets.refundMinor], at(r[Tickets.createdAt]), r[Tickets.resolvedAt]?.let(::at))
+        private fun bind(it: org.jetbrains.exposed.sql.statements.UpdateBuilder<*>, t: Ticket) {
+            it[Tickets.id] = t.id; it[Tickets.tenantId] = t.tenantId; it[Tickets.orderId] = t.orderId; it[Tickets.userId] = t.userId; it[Tickets.providerId] = t.providerId; it[Tickets.category] = t.category
+            it[Tickets.description] = t.description; it[Tickets.photos] = json.encodeToString(photos, t.photos); it[Tickets.status] = t.status.name; it[Tickets.resolutionNote] = t.resolutionNote
+            it[Tickets.refundMinor] = t.refundMinor; it[Tickets.createdAt] = ms(t.createdAt); it[Tickets.resolvedAt] = t.resolvedAt?.let(::ms)
+        }
+        override fun insert(ticket: Ticket) = tx { Tickets.insert { bind(it, ticket) }; Unit }
+        override fun update(ticket: Ticket) = tx { Tickets.update({ Tickets.id eq ticket.id }) { bind(it, ticket) }; Unit }
+        override fun byId(id: Id) = tx { Tickets.selectAll().where { Tickets.id eq id }.singleOrNull()?.let(::map) }
+        override fun byUser(userId: Id) = tx { Tickets.selectAll().where { Tickets.userId eq userId }.orderBy(Tickets.createdAt, SortOrder.DESC).map(::map) }
+        override fun byProvider(providerId: Id) = tx { Tickets.selectAll().where { Tickets.providerId eq providerId }.orderBy(Tickets.createdAt, SortOrder.DESC).map(::map) }
+        override fun list(tenantId: Id, status: TicketStatus?) = tx {
+            Tickets.selectAll().where { if (status == null) Tickets.tenantId eq tenantId else (Tickets.tenantId eq tenantId) and (Tickets.status eq status.name) }.orderBy(Tickets.createdAt, SortOrder.DESC).map(::map)
+        }
+    }
+
+    val notifications = object : NotificationRepo {
+        override fun insert(n: Notification) = tx { Notifications.insert { it[id] = n.id; it[tenantId] = n.tenantId; it[userId] = n.userId; it[title] = n.title; it[body] = n.body; it[orderId] = n.orderId; it[isRead] = n.read; it[createdAt] = ms(n.createdAt) }; Unit }
+        override fun list(userId: Id, limit: Int) = tx {
+            Notifications.selectAll().where { Notifications.userId eq userId }.orderBy(Notifications.createdAt, SortOrder.DESC).limit(limit).map {
+                Notification(it[Notifications.id], it[Notifications.tenantId], it[Notifications.userId], it[Notifications.title], it[Notifications.body], it[Notifications.orderId], it[Notifications.isRead], at(it[Notifications.createdAt]))
+            }
+        }
+        override fun markRead(userId: Id) = tx { Notifications.update({ Notifications.userId eq userId }) { it[isRead] = true }; Unit }
+    }
+
+    val devices = object : DeviceRepo {
+        override fun register(tenantId: Id, userId: Id, token: String, platform: String, at: Instant) = tx {
+            Devices.deleteWhere { Devices.token eq token }
+            Devices.insert { it[Devices.token] = token; it[Devices.tenantId] = tenantId; it[Devices.userId] = userId; it[Devices.platform] = platform; it[createdAt] = ms(at) }; Unit
+        }
+    }
+
     /** Idempotency store for retried POSTs: same key returns the stored response. */
     fun idempotent(tenantId: Id, scope: String, key: String): String? = tx {
         IdempotencyKeys.selectAll().where { (IdempotencyKeys.tenantId eq tenantId) and (IdempotencyKeys.scope eq scope) and (IdempotencyKeys.idemKey eq key) }.singleOrNull()?.get(IdempotencyKeys.response)
@@ -295,7 +372,7 @@ class Persistence(private val db: Database) {
         IdempotencyKeys.insert { it[IdempotencyKeys.tenantId] = tenantId; it[IdempotencyKeys.scope] = scope; it[idemKey] = key; it[IdempotencyKeys.response] = response; it[createdAt] = ms(now) }; Unit
     }
 
-    fun repos() = Repos(tenants, users, providers, locations, catalog, blocks, orders, payments, ledger, payouts, reviews, assets, audit)
+    fun repos() = Repos(tenants, users, providers, locations, catalog, blocks, orders, payments, ledger, payouts, reviews, assets, audit, promos, favorites, places, tickets, notifications, devices)
 }
 
 @Serializable

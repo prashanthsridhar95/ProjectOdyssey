@@ -20,7 +20,12 @@ data class TenantConfig(
     val billing: BillingConfig = BillingConfig(),
     val serviceTemplates: List<ServiceTemplate> = emptyList(),
     val amenities: List<String> = emptyList(),
+    /** Customer messages by order action (ACCEPT, START, COMPLETE...) and REMINDER. Placeholders: {location} {address} {when} {time} {code} {asset} {services} {note}. */
+    val messages: Map<String, Message> = emptyMap(),
 )
+
+@Serializable
+data class Message(val title: String, val body: String)
 
 /** Display words, so the same core can say Vendor/Outlet/Booking or Restaurant/Branch/Order. */
 @Serializable

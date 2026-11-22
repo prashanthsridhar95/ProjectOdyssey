@@ -25,9 +25,19 @@ class DevIdentityProvider(private val code: String) : IdentityProvider {
 
 class FakePaymentGateway : PaymentGateway {
     private var counter = 0L
+    private val pendingChecks = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
     override fun charge(req: ChargeRequest): ChargeResult {
         if (req.simulate == "fail" || req.method.equals("FAIL", true)) return ChargeResult(false, null, "The payment was declined")
-        return ChargeResult(true, "pay_dev_${req.orderId.take(8)}_${++counter}")
+        val ref = "pay_dev_${req.orderId.take(8)}_${++counter}"
+        // simulate=pending behaves like a slow bank: the first status check is still pending, the second succeeds.
+        if (req.simulate == "pending") { pendingChecks[ref] = 0; return ChargeResult(false, ref, pending = true) }
+        return ChargeResult(true, ref)
+    }
+
+    override fun status(gatewayRef: String): ChargeResult {
+        val checks = pendingChecks.merge(gatewayRef, 1) { a, b -> a + b } ?: 1
+        return if (checks >= 2) ChargeResult(true, gatewayRef) else ChargeResult(false, gatewayRef, pending = true)
     }
     override fun refund(gatewayRef: String, amountMinor: Long) = RefundResult(true, "rf_dev_${++counter}")
 }
@@ -75,4 +85,10 @@ class AuthService(private val r: Repos, private val ids: Ids, private val identi
     }
 
     fun issueFor(user: User) = AuthResult(tokens.issue(user), user)
+}
+
+/** Logs pushes. Replace with an FCM / APNs sender; the in-app notification inbox already works. */
+class LogPushSender : PushSender {
+    private val log = org.slf4j.LoggerFactory.getLogger("push")
+    override fun send(userId: Id, title: String, body: String) = log.info("push to {}: {} - {}", userId, title, body)
 }

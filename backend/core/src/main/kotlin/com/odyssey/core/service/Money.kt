@@ -6,17 +6,19 @@ import com.odyssey.core.ports.Clock
 import com.odyssey.core.ports.Ids
 import com.odyssey.core.ports.LedgerRepo
 
-data class Quote(val subtotalMinor: Long, val taxMinor: Long, val feeMinor: Long, val totalMinor: Long, val commissionBps: Int, val commissionMinor: Long)
+data class Quote(val subtotalMinor: Long, val taxMinor: Long, val feeMinor: Long, val totalMinor: Long, val commissionBps: Int, val commissionMinor: Long, val discountMinor: Long = 0)
 
 fun bps(amountMinor: Long, bps: Int): Long = Math.round(amountMinor * bps / 10_000.0)
 
 object Pricing {
     /** Commission is taken on the service amount only, never on tax or customer fees. */
-    fun quote(config: TenantConfig, provider: Provider?, subtotalMinor: Long): Quote {
+    fun quote(config: TenantConfig, provider: Provider?, subtotalMinor: Long, discountMinor: Long = 0): Quote {
         val commissionBps = provider?.commissionBps ?: config.money.defaultCommissionBps
-        val tax = bps(subtotalMinor, config.money.taxBps)
         val fee = config.money.customerFeeMinor
-        return Quote(subtotalMinor, tax, fee, subtotalMinor + tax + fee, commissionBps, bps(subtotalMinor, commissionBps))
+        // Tax applies to the service plus the convenience fee; a promo reduces what the customer pays after tax.
+        val tax = bps(subtotalMinor + fee, config.money.taxBps)
+        val discount = minOf(discountMinor, subtotalMinor + fee + tax)
+        return Quote(subtotalMinor, tax, fee, subtotalMinor + tax + fee - discount, commissionBps, bps(subtotalMinor, commissionBps), discount)
     }
 }
 
@@ -49,7 +51,8 @@ class Ledger(private val repo: LedgerRepo, private val ids: Ids, private val clo
         listOf(
             Accounts.ESCROW to o.totalMinor,
             Accounts.PROVIDER_PAYABLE to -(o.subtotalMinor - o.commissionMinor),
-            Accounts.TENANT_COMMISSION to -o.commissionMinor,
+            // A promo is funded by the tenant, so it comes out of the tenant's commission, not the vendor's share.
+            Accounts.TENANT_COMMISSION to -(o.commissionMinor - o.discountMinor),
             Accounts.TAX_PAYABLE to -o.taxMinor,
             Accounts.CUSTOMER_FEE to -o.feeMinor,
         ),
@@ -72,6 +75,9 @@ class Ledger(private val repo: LedgerRepo, private val ids: Ids, private val clo
         )
         return retained - commission
     }
+
+    /** A dispute upheld after the booking was settled: the customer is refunded and the vendor's payable is reduced. */
+    fun disputeRefund(o: Order, amountMinor: Long) = post(o.tenantId, o.id, "DISPUTE_REFUND", listOf(Accounts.PROVIDER_PAYABLE to amountMinor, Accounts.GATEWAY to -amountMinor))
 
     fun payout(tenantId: Id, amountMinor: Long) = post(tenantId, null, "PAYOUT", listOf(Accounts.PROVIDER_PAYABLE to amountMinor, Accounts.BANK to -amountMinor))
 }

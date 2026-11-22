@@ -8,7 +8,7 @@ import java.time.LocalTime
 data class LocationDraft(
     val name: String, val address: String, val lat: Double, val lng: Double,
     val openTime: LocalTime = LocalTime.of(8, 0), val closeTime: LocalTime = LocalTime.of(20, 0),
-    val slotMinutes: Int = 30, val capacity: Int = 2, val amenities: List<String> = emptyList(),
+    val slotMinutes: Int = 30, val capacity: Int = 2, val amenities: List<String> = emptyList(), val phone: String? = null,
 )
 
 enum class ProviderAction(val from: Set<ProviderStatus>, val to: ProviderStatus) {
@@ -55,7 +55,7 @@ class ProviderService(
             Location(
                 id = ids.newId(), tenantId = tenant.id, providerId = provider.id, name = draft.name, address = draft.address,
                 lat = draft.lat, lng = draft.lng, openTime = draft.openTime, closeTime = draft.closeTime,
-                slotMinutes = draft.slotMinutes, capacity = draft.capacity, amenities = draft.amenities,
+                slotMinutes = draft.slotMinutes, capacity = draft.capacity, amenities = draft.amenities, phone = draft.phone,
             ),
         )
         auditor.log(actor, "PROVIDER_CREATED", "provider", provider.id, name)
@@ -184,7 +184,7 @@ class ProviderService(
         requireOwner(actor)
         val location = Location(
             ids.newId(), tenant.id, actor.providerId!!, draft.name, draft.address, draft.lat, draft.lng,
-            openTime = draft.openTime, closeTime = draft.closeTime, slotMinutes = draft.slotMinutes, capacity = draft.capacity, amenities = draft.amenities,
+            openTime = draft.openTime, closeTime = draft.closeTime, slotMinutes = draft.slotMinutes, capacity = draft.capacity, amenities = draft.amenities, phone = draft.phone,
         )
         r.locations.insert(location)
         auditor.log(actor, "LOCATION_ADDED", "location", location.id)

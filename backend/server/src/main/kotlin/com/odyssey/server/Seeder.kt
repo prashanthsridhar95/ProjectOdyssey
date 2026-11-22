@@ -55,7 +55,7 @@ class Seeder(private val ctx: AppContext) {
             r.users.update(owner.copy(providerId = provider.id))
             val location = Location(
                 ctx.ids.newId(), tenant.id, provider.id, v.outlet, v.address, v.lat, v.lng, openTime = LocalTime.parse(v.open), closeTime = LocalTime.parse(v.close),
-                capacity = v.bays, amenities = v.amenities, ratingAvg = v.rating, ratingCount = v.reviews,
+                capacity = v.bays, amenities = v.amenities, ratingAvg = v.rating, ratingCount = v.reviews, phone = "+9180${4000000 + index * 1111}",
             )
             r.locations.insert(location)
             menu.forEach { (info, prices) ->
@@ -68,6 +68,8 @@ class Seeder(private val ctx: AppContext) {
             r.users.insert(User(ctx.ids.newId(), tenant.id, "+91900000010${index + 1}", "${v.name} Manager", Role.PROVIDER_MANAGER, provider.id, ctx.pins.hash(STAFF_PIN)))
             r.users.insert(User(ctx.ids.newId(), tenant.id, "+91900000020${index + 1}", "${v.name} Counter", Role.PROVIDER_STAFF, provider.id, ctx.pins.hash(STAFF_PIN)))
         }
+        r.promos.save(PromoCode(tenant.id, "FIRSTWASH", PromoKind.FLAT, 10000, null, 30000, null, null, null, 1, true, "₹100 off your first wash"))
+        r.promos.save(PromoCode(tenant.id, "WEEKEND10", PromoKind.PERCENT, 1000, 15000, 0, null, null, null, 5, true, "10% off, up to ₹150"))
         // One vendor waiting for review so the admin approval flow has something to show.
         val pendingOwner = User(ctx.ids.newId(), tenant.id, "+919000000099", "Gleam Garage Owner", Role.PROVIDER_OWNER)
         r.users.insert(pendingOwner)

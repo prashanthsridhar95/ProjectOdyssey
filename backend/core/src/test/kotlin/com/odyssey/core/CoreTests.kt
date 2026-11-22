@@ -49,6 +49,9 @@ private class Orders(val list: List<Order>) : OrderRepo {
     override fun expiredHolds(now: Instant, state: String) = TODO()
     override fun settledUnpaid(providerId: Id) = TODO()
     override fun paidOrders(tenantId: Id, from: Instant, to: Instant, unpaidStates: List<String>) = TODO()
+    override fun byCode(tenantId: Id, code: String, providerId: Id?) = TODO()
+    override fun countPromoUses(tenantId: Id, code: String, userId: Id?) = TODO()
+    override fun dueForReminder(from: Instant, to: Instant, states: List<String>) = TODO()
 }
 
 private class Blocks(val list: List<Block> = emptyList()) : BlockRepo {
@@ -112,9 +115,19 @@ class PricingTest {
     @Test
     fun `commission is on the service amount only`() {
         val q = Pricing.quote(config.copy(money = MoneyConfig(taxBps = 1800, customerFeeMinor = 1000, defaultCommissionBps = 1500)), null, 100_000)
-        assertEquals(18_000, q.taxMinor)
-        assertEquals(119_000, q.totalMinor)
+        assertEquals(18_180, q.taxMinor, "tax covers the service plus the fee")
+        assertEquals(119_180, q.totalMinor)
         assertEquals(15_000, q.commissionMinor)
+    }
+
+    @Test
+    fun `a promo reduces what the customer pays after tax and never below zero`() {
+        val cfg = config.copy(money = MoneyConfig(taxBps = 1800, customerFeeMinor = 2000, defaultCommissionBps = 1500))
+        val q = Pricing.quote(cfg, null, 59_800, discountMinor = 10_000)
+        assertEquals(11_124, q.taxMinor)
+        assertEquals(62_924, q.totalMinor)
+        assertEquals(10_000, q.discountMinor)
+        assertEquals(0, Pricing.quote(cfg, null, 100, discountMinor = 1_000_000).totalMinor)
     }
 
     @Test

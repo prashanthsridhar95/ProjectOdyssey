@@ -6,12 +6,13 @@ import java.time.Instant
 import java.time.ZoneId
 import kotlin.math.*
 
-enum class Sort { DISTANCE, RATING, PRICE }
+enum class Sort { DISTANCE, RATING, PRICE, EARLIEST }
 
 data class SearchQuery(
     val lat: Double, val lng: Double, val radiusKm: Double = 15.0, val sort: Sort = Sort.DISTANCE,
     val text: String? = null, val variantKey: String? = null, val maxPriceMinor: Long? = null,
     val openNow: Boolean = false, val amenities: Set<String> = emptySet(),
+    val services: Set<String> = emptySet(), val minRating: Double = 0.0, val minPriceMinor: Long? = null,
 )
 
 data class LocationSummary(
@@ -41,14 +42,17 @@ class Discovery(private val r: Repos, private val availability: SlotAvailability
             .filter { (_, d) -> d <= q.radiusKm }
             .filter { (l, _) -> q.text.isNullOrBlank() || l.name.contains(q.text, true) || l.address.contains(q.text, true) || providers[l.providerId]!!.name.contains(q.text, true) }
             .filter { (l, _) -> q.amenities.all { it in l.amenities } }
-            .map { (l, d) -> summarize(tenant, l, providers[l.providerId]!!.name, d, variant, now) }
+            .filter { (l, _) -> l.ratingAvg >= q.minRating }
+            .mapNotNull { (l, d) -> summarize(tenant, l, providers[l.providerId]!!.name, d, variant, now, q.services) }
             .filter { !q.openNow || it.openNow }
             .filter { q.maxPriceMinor == null || (it.priceFromMinor != null && it.priceFromMinor <= q.maxPriceMinor) }
+            .filter { q.minPriceMinor == null || (it.priceFromMinor != null && it.priceFromMinor >= q.minPriceMinor) }
             .let { list ->
                 when (q.sort) {
                     Sort.DISTANCE -> list.sortedBy { it.distanceKm }
                     Sort.RATING -> list.sortedByDescending { it.location.ratingAvg }
                     Sort.PRICE -> list.sortedBy { it.priceFromMinor ?: Long.MAX_VALUE }
+                    Sort.EARLIEST -> list.sortedBy { it.nextFreeAt ?: Instant.MAX }
                 }
             }
     }
@@ -58,12 +62,16 @@ class Discovery(private val r: Repos, private val availability: SlotAvailability
         val provider = r.providers.byId(location.providerId)?.takeIf { it.status == ProviderStatus.LIVE } ?: throw notFound("Location")
         val distance = if (lat != null && lng != null) haversineKm(lat, lng, location.lat, location.lng) else 0.0
         val variant = variantKey ?: tenant.config.variants.options.firstOrNull()?.key
-        val summary = summarize(tenant, location, provider.name, distance, variant, clock.now())
+        val summary = summarize(tenant, location, provider.name, distance, variant, clock.now())!!
         return LocationDetail(summary, r.catalog.byLocation(location.id, activeOnly = true), r.reviews.byLocation(location.id, 20))
     }
 
-    private fun summarize(tenant: Tenant, l: Location, providerName: String, distance: Double, variant: String?, now: Instant): LocationSummary {
-        val items = r.catalog.byLocation(l.id, activeOnly = true)
+    /** Null when the place does not offer every requested service. */
+    private fun summarize(tenant: Tenant, l: Location, providerName: String, distance: Double, variant: String?, now: Instant, services: Set<String> = emptySet()): LocationSummary? {
+        val all = r.catalog.byLocation(l.id, activeOnly = true)
+        val wanted = services.map { it.lowercase() }.toSet()
+        val items = if (wanted.isEmpty()) all else all.filter { it.name.lowercase() in wanted }
+        if (wanted.isNotEmpty() && items.map { it.name.lowercase() }.toSet() != wanted) return null
         val priced = if (variant == null) emptyList() else items.filter { it.prices.containsKey(variant) }
         val from = priced.minOfOrNull { it.prices[variant]!! }
         val shortest = priced.minOfOrNull { it.durationMinutes } ?: items.minOfOrNull { it.durationMinutes } ?: l.slotMinutes

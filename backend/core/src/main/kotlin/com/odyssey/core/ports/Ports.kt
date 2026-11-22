@@ -24,12 +24,14 @@ interface PinHasher {
 }
 
 data class ChargeRequest(val orderId: Id, val amountMinor: Long, val method: String, val idempotencyKey: String, val simulate: String?)
-data class ChargeResult(val success: Boolean, val gatewayRef: String?, val failureReason: String? = null)
+data class ChargeResult(val success: Boolean, val gatewayRef: String?, val failureReason: String? = null, val pending: Boolean = false)
 data class RefundResult(val success: Boolean, val gatewayRef: String?)
 
 /** Payment gateway adapter (Razorpay Route, Cashfree Easy Split, ...). */
 interface PaymentGateway {
     fun charge(req: ChargeRequest): ChargeResult
+    /** Asks the bank about a payment that was left pending. */
+    fun status(gatewayRef: String): ChargeResult
     fun refund(gatewayRef: String, amountMinor: Long): RefundResult
 }
 
@@ -96,6 +98,10 @@ interface OrderRepo {
     fun expiredHolds(now: Instant, state: String): List<Order>
     fun settledUnpaid(providerId: Id): List<Order>
     fun paidOrders(tenantId: Id, from: Instant, to: Instant, unpaidStates: List<String>): List<Order>
+    fun byCode(tenantId: Id, code: String, providerId: Id?): Order?
+    /** Orders by this user (or anyone when null) that used the code and are not dead (expired, cancelled, rejected, unpaid). */
+    fun countPromoUses(tenantId: Id, code: String, userId: Id?): Int
+    fun dueForReminder(from: Instant, to: Instant, states: List<String>): List<Order>
 }
 
 interface PaymentRepo {
@@ -134,6 +140,44 @@ interface AuditRepo {
     fun list(tenantId: Id, limit: Int): List<AuditEntry>
 }
 
+interface PromoRepo {
+    fun byCode(tenantId: Id, code: String): PromoCode?
+    fun list(tenantId: Id): List<PromoCode>
+    fun save(promo: PromoCode)
+}
+
+interface FavoriteRepo {
+    fun ids(userId: Id): List<Id>
+    fun add(userId: Id, locationId: Id, at: Instant)
+    fun remove(userId: Id, locationId: Id)
+}
+
+interface PlaceRepo {
+    fun list(userId: Id): List<SavedPlace>
+    fun save(place: SavedPlace)
+    fun delete(userId: Id, label: String)
+}
+
+interface TicketRepo {
+    fun insert(ticket: Ticket)
+    fun update(ticket: Ticket)
+    fun byId(id: Id): Ticket?
+    fun byUser(userId: Id): List<Ticket>
+    fun list(tenantId: Id, status: TicketStatus?): List<Ticket>
+    fun byProvider(providerId: Id): List<Ticket>
+}
+
+interface NotificationRepo {
+    fun insert(n: Notification)
+    fun list(userId: Id, limit: Int): List<Notification>
+    fun markRead(userId: Id)
+}
+
+interface DeviceRepo { fun register(tenantId: Id, userId: Id, token: String, platform: String, at: Instant) }
+
+/** Sends a push to a user's devices. The POC logs; production plugs in FCM and APNs. */
+interface PushSender { fun send(userId: Id, title: String, body: String) }
+
 class Repos(
     val tenants: TenantRepo,
     val users: UserRepo,
@@ -148,4 +192,10 @@ class Repos(
     val reviews: ReviewRepo,
     val assets: AssetRepo,
     val audit: AuditRepo,
+    val promos: PromoRepo,
+    val favorites: FavoriteRepo,
+    val places: PlaceRepo,
+    val tickets: TicketRepo,
+    val notifications: NotificationRepo,
+    val devices: DeviceRepo,
 )
