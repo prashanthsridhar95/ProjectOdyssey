@@ -161,7 +161,7 @@ fun Route.customerRoutes(ctx: AppContext) {
         val tenant = call.tenantFor(ctx, actor)
         val order = ctx.orders.get(tenant, actor, call.pathId())
         val reviewed = ctx.repos.reviews.byOrder(order.id) != null
-        call.respond(OrderDetailDto(order.dto(tenant, actor, reviewed, ctx.repos.locations.byId(order.locationId)), ctx.orders.events(order.id).map { OrderEventDto(it.from, it.to, it.action, it.note, it.at.iso()) }))
+        call.respond(OrderDetailDto(order.dto(tenant, actor, reviewed, ctx.repos.locations.byId(order.locationId)), ctx.orders.events(order.id).map { e -> OrderEventDto(e.from, e.to, e.action, e.note, e.at.iso(), e.actorId?.let { ctx.repos.users.byId(it)?.name }) }))
     }
 
     /** One endpoint for every state change; the order flow decides who may do what. */

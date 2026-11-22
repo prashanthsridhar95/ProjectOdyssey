@@ -8,6 +8,8 @@ import io.ktor.http.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalTime
 import java.time.YearMonth
 import java.time.ZoneId
@@ -83,7 +85,7 @@ fun Route.providerRoutes(ctx: AppContext) {
             val actor = call.actor(); actor.requireProvider()
             val tenant = call.tenantFor(ctx, actor)
             val r = call.receive<ItemRequest>()
-            val item = ctx.providers.saveItem(tenant, actor, call.ownerPin(), call.pathId(), null, r.name, r.description, r.category, r.durationMinutes, r.active, r.prices)
+            val item = ctx.providers.saveItem(tenant, actor, call.ownerPin(), call.pathId(), null, r.name, r.description, r.category, r.durationMinutes, r.active, r.prices, r.baysUsed, r.outOfStock)
             call.respond(HttpStatusCode.Created, item.dto())
         }
 
@@ -91,7 +93,7 @@ fun Route.providerRoutes(ctx: AppContext) {
             val actor = call.actor(); actor.requireProvider()
             val tenant = call.tenantFor(ctx, actor)
             val r = call.receive<ItemRequest>()
-            val item = ctx.providers.saveItem(tenant, actor, call.ownerPin(), call.pathId(), call.pathId("itemId"), r.name, r.description, r.category, r.durationMinutes, r.active, r.prices)
+            val item = ctx.providers.saveItem(tenant, actor, call.ownerPin(), call.pathId(), call.pathId("itemId"), r.name, r.description, r.category, r.durationMinutes, r.active, r.prices, r.baysUsed, r.outOfStock)
             call.respond(item.dto())
         }
 
@@ -114,7 +116,8 @@ fun Route.providerRoutes(ctx: AppContext) {
             val actor = call.actor(); actor.requireProvider()
             val tenant = call.tenantFor(ctx, actor)
             val r = call.receive<BlockRequest>()
-            call.respond(HttpStatusCode.Created, ctx.providers.addBlock(tenant, actor, call.pathId(), parseInstant(r.startsAt), parseInstant(r.endsAt), r.reason).dto())
+            val repeat = runCatching { Repeat.valueOf(r.repeat) }.getOrElse { throw invalid("Repeat must be NONE, DAILY or WEEKLY") }
+            call.respond(HttpStatusCode.Created, ctx.providers.addBlock(tenant, actor, call.pathId(), parseInstant(r.startsAt), parseInstant(r.endsAt), r.reason, r.bays, repeat).dto())
         }
 
         delete("/locations/{id}/blocks/{blockId}") {
@@ -141,7 +144,7 @@ fun Route.providerRoutes(ctx: AppContext) {
             val actor = call.actor(); actor.requireProvider()
             val tenant = call.tenantFor(ctx, actor)
             val r = call.receive<WalkInRequest>()
-            val order = ctx.orders.walkIn(tenant, actor, WalkIn(r.locationId, r.itemIds, r.variantKey, parseInstant(r.startsAt), r.customerName, r.customerPhone))
+            val order = ctx.orders.walkIn(tenant, actor, WalkIn(r.locationId, r.itemIds, r.variantKey, r.startsAt?.let(::parseInstant), r.customerName, r.customerPhone, r.plate, r.checkIn, r.bay))
             call.respond(HttpStatusCode.Created, order.dto(tenant, actor))
         }
 
@@ -182,7 +185,64 @@ fun Route.providerRoutes(ctx: AppContext) {
             val actor = call.actor(); actor.requireProvider()
             val tenant = call.tenantFor(ctx, actor)
             ctx.providers.verifyPin(actor, call.ownerPin())
-            call.respond(ctx.admin.earnings(tenant, actor, null, null))
+            val (from, to) = periodOf(call.request.queryParameters["range"])
+            call.respond(ctx.reports.earnings(tenant, actor, from, to))
+        }
+
+        get("/statement") {
+            val actor = call.actor(); actor.requireProvider()
+            val tenant = call.tenantFor(ctx, actor)
+            ctx.providers.verifyPin(actor, call.ownerPin())
+            val (from, to) = periodOf(call.request.queryParameters["range"])
+            call.respondText(ctx.reports.statementCsv(tenant, actor, from, to), ContentType.Text.CSV)
+        }
+
+        get("/overview") {
+            val actor = call.actor(); actor.requireProvider()
+            val tenant = call.tenantFor(ctx, actor)
+            val q = call.request.queryParameters
+            call.respond(ctx.reports.overview(tenant, actor, q["locationId"], q["range"] ?: "week"))
+        }
+
+        get("/reviews") {
+            val actor = call.actor(); actor.requireProvider()
+            call.respond(ctx.reports.reviews(actor, call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 200) ?: 50).map { it.dto() })
+        }
+
+        post("/reviews/{id}/reply") {
+            val actor = call.actor(); actor.requireProvider()
+            call.respond(ctx.providers.replyToReview(actor, call.pathId(), call.receive<ReplyRequest>().text).dto())
+        }
+
+        put("/menu/bulk") {
+            val actor = call.actor(); actor.requireProvider()
+            val tenant = call.tenantFor(ctx, actor)
+            val r = call.receive<BulkEditRequest>()
+            val n = ctx.providers.bulkEdit(tenant, actor, call.ownerPin(), r.locationIds, r.edits.map { ProviderService.BulkEdit(it.name, it.prices, it.active, it.outOfStock) })
+            call.respond(mapOf("changed" to n))
+        }
+
+        /** Everything the day-by-bay calendar draws: bookings with their bay, and closed windows with their bays. */
+        get("/locations/{id}/calendar") {
+            val actor = call.actor(); actor.requireProvider()
+            val tenant = call.tenantFor(ctx, actor)
+            val location = ctx.repos.locations.byId(call.pathId())?.takeIf { it.providerId == actor.providerId } ?: throw notFound("Location")
+            val zone = ZoneId.of(location.timezone)
+            val q = call.request.queryParameters
+            val start = parseDate(q["from"], zone)
+            val days = (q["days"]?.toIntOrNull() ?: 1).coerceIn(1, 14)
+            val from = start.atStartOfDay(zone).toInstant()
+            val to = start.plusDays(days.toLong()).atStartOfDay(zone).toInstant()
+            val dead = setOf(tenant.config.flow.initial, "EXPIRED")
+            val orders = ctx.repos.orders.byProvider(actor.providerId!!, location.id, null, from, to).filter { it.status !in dead }
+            call.respond(CalendarDto(location.capacity, location.slotMinutes, location.openTime.toString(), location.closeTime.toString(), orders.map { it.dto(tenant, actor) }, ctx.availability.windows(location, from, to).sortedBy { it.start }.map { it.dto() }))
+        }
+
+        get("/locations/{id}/closures") {
+            val actor = call.actor(); actor.requireProvider()
+            val location = ctx.repos.locations.byId(call.pathId())?.takeIf { it.providerId == actor.providerId } ?: throw notFound("Location")
+            val far = Instant.now().plusSeconds(86_400L * 400)
+            call.respond(ctx.repos.blocks.overlapping(location.id, Instant.now().minusSeconds(86_400), far).filter { it.repeat != Repeat.NONE || it.endsAt.isAfter(Instant.now()) }.map { it.dto() })
         }
 
         get("/payouts") {
@@ -198,7 +258,7 @@ fun Route.adminRoutes(ctx: AppContext) {
     route("/admin") {
         get("/dashboard") {
             val actor = call.actor(); actor.requireBackoffice()
-            call.respond(ctx.admin.dashboard(call.tenantFor(ctx, actor)))
+            call.respond(ctx.admin.dashboard(call.tenantFor(ctx, actor), call.request.queryParameters["range"] ?: "7d"))
         }
 
         get("/providers") {
@@ -221,7 +281,7 @@ fun Route.adminRoutes(ctx: AppContext) {
         get("/providers/{id}") {
             val actor = call.actor(); actor.requireBackoffice()
             val p = ctx.repos.providers.byId(call.pathId())?.takeIf { it.tenantId == actor.tenantId } ?: throw notFound("Provider")
-            call.respond(p.dto(ctx.repos.users.byId(p.ownerUserId), ctx.repos.locations.byProvider(p.id)))
+            call.respond(p.dto(ctx.repos.users.byId(p.ownerUserId), ctx.repos.locations.byProvider(p.id), ctx.repos.users.byProvider(p.id).count { it.active }))
         }
 
         post("/providers/{id}/actions") {
@@ -249,7 +309,13 @@ fun Route.adminRoutes(ctx: AppContext) {
 
         get("/customers") {
             val actor = call.actor(); actor.requireBackoffice()
-            call.respond(ctx.repos.users.byRole(actor.tenantId, Role.CUSTOMER, 500).map { CustomerDto(it.id, it.name, it.phone, it.active) })
+            call.respond(ctx.admin.customers(call.tenantFor(ctx, actor), call.request.queryParameters["q"]))
+        }
+
+        put("/customers/{id}/active") {
+            val actor = call.actor()
+            ctx.admin.setCustomerActive(call.tenantFor(ctx, actor), actor, call.pathId(), call.receive<ActiveRequest>().active)
+            call.respond(HttpStatusCode.NoContent)
         }
 
         get("/payouts") {
@@ -263,7 +329,64 @@ fun Route.adminRoutes(ctx: AppContext) {
             val actor = call.actor()
             val tenant = call.tenantFor(ctx, actor)
             val names = ctx.repos.providers.list(tenant.id).associate { it.id to it.name }
-            call.respond(ctx.admin.runPayouts(tenant, actor).map { it.dto(names[it.providerId]) })
+            val q = call.request.queryParameters
+            call.respond(ctx.admin.runPayouts(tenant, actor, q["from"]?.let(::parseInstant), q["to"]?.let(::parseInstant)).map { it.dto(names[it.providerId]) })
+        }
+
+        post("/payouts/{id}/retry") {
+            val actor = call.actor()
+            val tenant = call.tenantFor(ctx, actor)
+            val names = ctx.repos.providers.list(tenant.id).associate { it.id to it.name }
+            call.respond(ctx.admin.retryPayout(tenant, actor, call.pathId()).dto(names.values.firstOrNull()))
+        }
+
+        get("/payments/batch") {
+            val actor = call.actor(); actor.require(Role.ADMIN, Role.FINANCE)
+            val q = call.request.queryParameters
+            call.respond(ctx.admin.batch(call.tenantFor(ctx, actor), q["from"]?.let(::parseInstant), q["to"]?.let(::parseInstant)))
+        }
+        get("/payments/collections") { val a = call.actor(); a.require(Role.ADMIN, Role.FINANCE); call.respond(ctx.admin.collections(call.tenantFor(ctx, a), 200).map { it.dto() }) }
+        get("/payments/refunds") { val a = call.actor(); a.require(Role.ADMIN, Role.FINANCE); call.respond(ctx.admin.refunds(call.tenantFor(ctx, a), 200).map { it.dto() }) }
+        get("/payments/ledger") { val a = call.actor(); a.require(Role.ADMIN, Role.FINANCE); call.respond(ctx.admin.ledgerEntries(call.tenantFor(ctx, a), 300).map { it.dto() }) }
+        get("/payments/export") {
+            val a = call.actor(); a.require(Role.ADMIN, Role.FINANCE)
+            val rows = ctx.admin.ledgerEntries(call.tenantFor(ctx, a), 5000)
+            call.respondText((listOf("time,type,account,order,amount") + rows.map { "${it.createdAt},${it.type},${it.account},${it.orderId ?: ""},${it.amountMinor / 100.0}" }).joinToString("\n"), ContentType.Text.CSV)
+        }
+
+        put("/providers/{id}/hold") {
+            val actor = call.actor()
+            val p = ctx.providers.setPayoutHold(call.tenantFor(ctx, actor), actor, call.pathId(), call.receive<HoldRequest>().hold)
+            call.respond(p.dto())
+        }
+
+        post("/providers/{id}/documents/{type}") {
+            val actor = call.actor()
+            val r = call.receive<DocReviewRequest>()
+            val state = runCatching { DocState.valueOf(r.state) }.getOrElse { throw invalid("State must be VERIFIED, NEEDS_FIX or PENDING") }
+            val p = ctx.providers.reviewDocument(call.tenantFor(ctx, actor), actor, call.pathId(), call.pathId("type"), state, r.note)
+            call.respond(p.dto(ctx.repos.users.byId(p.ownerUserId), ctx.repos.locations.byProvider(p.id), ctx.repos.users.byProvider(p.id).count { it.active }))
+        }
+
+        get("/moderation/menu") { val a = call.actor(); a.requireBackoffice(); call.respond(ctx.admin.moderationOutliers(call.tenantFor(ctx, a))) }
+        post("/moderation/menu/{itemId}") {
+            val a = call.actor()
+            ctx.admin.reviewOutlier(call.tenantFor(ctx, a), a, call.pathId("itemId"), call.receive<OutlierActionRequest>().hide)
+            call.respond(HttpStatusCode.NoContent)
+        }
+
+        get("/commission-rules") { val a = call.actor(); a.requireBackoffice(); call.respond(ctx.admin.rules(call.tenantFor(ctx, a)).map { it.dto() }) }
+        post("/commission-rules") {
+            val a = call.actor()
+            val r = call.receive<RuleRequest>()
+            val scope = runCatching { RuleScope.valueOf(r.scope) }.getOrElse { throw invalid("Scope must be OUTLET, VENDOR or CATEGORY") }
+            call.respond(HttpStatusCode.Created, ctx.admin.addRule(call.tenantFor(ctx, a), a, scope, r.target, r.rateBps, parseInstant(r.effectiveFrom), r.effectiveUntil?.let(::parseInstant)).dto())
+        }
+        delete("/commission-rules/{id}") { val a = call.actor(); ctx.admin.deleteRule(call.tenantFor(ctx, a), a, call.pathId()); call.respond(HttpStatusCode.NoContent) }
+        get("/commission-preview") {
+            val a = call.actor(); a.requireBackoffice()
+            val q = call.request.queryParameters
+            call.respond(ctx.admin.preview(call.tenantFor(ctx, a), q["serviceMinor"]?.toLongOrNull() ?: 50_000, q["rateBps"]?.toIntOrNull() ?: 1500))
         }
 
         get("/billing") {
@@ -327,4 +450,12 @@ fun Route.adminRoutes(ctx: AppContext) {
             call.respond(ctx.repos.audit.list(actor.tenantId, 200).map { it.dto() })
         }
     }
+}
+
+/** today / week / month as a time range ending now, in India time. */
+private fun periodOf(range: String?): Pair<Instant, Instant> {
+    val zone = ZoneId.of("Asia/Kolkata")
+    val end = LocalDate.now(zone).plusDays(1).atStartOfDay(zone).toInstant()
+    val days = when (range) { "today" -> 1L; "month" -> 30L; else -> 7L }
+    return end.minusSeconds(86_400 * days) to end
 }

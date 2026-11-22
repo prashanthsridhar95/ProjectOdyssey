@@ -98,7 +98,7 @@ class ApiFlowTest {
 
         val spot = location("Sparkle")
         val detail = detail(spot.id)
-        assertEquals(4, detail.items.size)
+        assertEquals(9, detail.items.size)
         val basic = detail.items.first { it.name == "Basic wash" }
         val start = slot(spot.id, listOf(basic.id))
 
@@ -118,7 +118,7 @@ class ApiFlowTest {
         val owner = login(OWNER1)
         val inbox: List<OrderDto> = get("/v1/provider/orders", owner).body()
         val mine = inbox.single { it.id == order.id }
-        assertEquals(1500, mine.commissionBps)
+        assertEquals(1400, mine.commissionBps, "the outlet rule for Sparkle Indiranagar applies")
         assertTrue("START" in mine.actions && "NO_SHOW" in mine.actions)
 
         assertEquals("IN_PROGRESS", act(owner, order.id, "START").body<OrderDto>().status)
@@ -129,13 +129,14 @@ class ApiFlowTest {
         assertEquals(HttpStatusCode.Conflict, post("/v1/orders/${order.id}/review", ReviewRequest(4, "again"), customer).status)
 
         // ledger balances and the commission is 15% of the service amount
-        val totals = ctx.repos.ledger.totals(ctx.tenant("carwash").id, null, null)
-        assertEquals(0, totals.values.sum(), "every ledger transaction balances")
-        assertEquals(-(price * 15 / 100), totals.getValue("tenant_commission"))
+        val sums = ctx.repos.ledger.sumByAccount(listOf(order.id))
+        assertEquals(0, ctx.repos.ledger.totals(ctx.tenant("carwash").id, null, null).values.sum(), "every ledger transaction balances")
+        assertEquals(-Math.round(price * 0.14), sums.getValue("tenant_commission"))
+        assertEquals(-Math.round(price * 0.013), sums.getValue("gateway_fee"), "the gateway's cut comes out of the vendor's share")
     }
 
     @Test
-    fun `payout covers settled orders minus commission and only once`() = withApi {
+    fun `payout covers settled orders minus commission and fee, and only once`() = withApi {
         val customer = login("+919876500002", "Ravi")
         val detail = detail(location("Sparkle").id)
         val start = slot(detail.location.id, listOf(detail.items.first { it.name == "Foam wash" }.id))
@@ -146,10 +147,14 @@ class ApiFlowTest {
 
         val admin = login(ADMIN)
         val run: List<PayoutDto> = postEmpty("/v1/admin/payouts/run", admin).body()
-        val payout = run.single()
+        val payout = run.first { it.providerName == "Sparkle Auto Spa" }
+        val paid = ctx.repos.orders.byId(order.id)!!
+        assertEquals(payout.id, paid.payoutId)
+        val owed = ctx.repos.orders.byProvider(paid.providerId, null, null, null, null).filter { it.payoutId == payout.id }.sumOf { ctx.repos.ledger.payableFor(it.id) }
+        assertEquals(owed, payout.amountMinor)
         val sub = detail.items.first { it.name == "Foam wash" }.prices.getValue("SEDAN")
-        assertEquals(sub - sub * 15 / 100, payout.amountMinor)
-        assertEquals(emptyList(), postEmpty("/v1/admin/payouts/run", admin).body<List<PayoutDto>>(), "second run pays nothing")
+        assertEquals(sub - Math.round(sub * 0.14) - Math.round(sub * 0.013), ctx.repos.ledger.payableFor(order.id))
+        assertEquals(emptyList(), postEmpty("/v1/admin/payouts/run", admin).body<List<PayoutDto>>(), "a second run pays nothing")
     }
 
     @Test
@@ -285,13 +290,15 @@ class ApiFlowTest {
     @Test
     fun `walk-ins take capacity and never touch the ledger`() = withApi {
         val owner = login(OWNER2)
+        val before = ctx.repos.ledger.totals(ctx.tenant("carwash").id, null, null)
         val detail = detail(location("Bubble Bay").id)
         val item = detail.items.first { it.name == "Basic wash" }
         val start = slot(detail.location.id, listOf(item.id))
         val req = WalkInRequest(detail.location.id, listOf(item.id), "HATCHBACK", start, "Walk-in Raju")
         repeat(2) { assertEquals(HttpStatusCode.Created, post("/v1/provider/walk-ins", req, owner).status) }
         assertEquals(HttpStatusCode.Conflict, post("/v1/provider/walk-ins", req, owner).status, "both bays are taken")
-        assertTrue(ctx.repos.ledger.totals(ctx.tenant("carwash").id, null, null).isEmpty())
+        val after = ctx.repos.ledger.totals(ctx.tenant("carwash").id, null, null)
+        assertEquals(before, after, "walk-ins move no money through the platform")
     }
 
     @Test
@@ -325,6 +332,7 @@ class ApiFlowTest {
         val admin = login(ADMIN)
         val tenant = ctx.tenant("carwash")
         ctx.admin.updateConfig(tenant, com.odyssey.core.domain.Actor(null, com.odyssey.core.domain.Role.ADMIN, tenant.id), tenant.config.copy(billing = com.odyssey.core.config.BillingConfig(1_000_000, 1, 200)))
+        val before: com.odyssey.core.service.BillingStatement = get("/v1/admin/billing", admin).body()
         val customer = login("+919876500081", "Billing")
         val detail = detail(location("Sparkle").id)
         val item = detail.items.first { it.name == "Basic wash" }
@@ -333,10 +341,10 @@ class ApiFlowTest {
             pay(customer, o.id)
         }
         val statement: com.odyssey.core.service.BillingStatement = get("/v1/admin/billing", admin).body()
-        assertEquals(3, statement.orders)
-        assertEquals(2, statement.overageOrders)
+        assertEquals(3, statement.orders - before.orders)
+        assertEquals(3, statement.overageOrders - before.overageOrders)
         val sub = item.prices.getValue("SEDAN")
-        assertEquals(2 * (sub * 2 / 100), statement.perOrderChargeMinor)
+        assertEquals(3 * Math.round(sub * 0.02), statement.perOrderChargeMinor - before.perOrderChargeMinor)
         assertEquals(1_000_000 + statement.perOrderChargeMinor, statement.totalMinor)
     }
 
@@ -557,6 +565,224 @@ class ApiFlowTest {
         assertEquals(5000, post("/v1/quote", QuoteRequest(detail.location.id, listOf(item.id), "SEDAN", "save50"), customer).body<QuoteDto>().discountMinor)
         put("/v1/admin/promos/SAVE50/active", ActiveRequest(false), admin)
         assertEquals(HttpStatusCode.BadRequest, post("/v1/quote", QuoteRequest(detail.location.id, listOf(item.id), "SEDAN", "SAVE50"), customer).status)
+    }
+
+    // ---- vendor and admin features from the Rinse design ----
+
+    @Test
+    fun `bookings get bays, blocked bays shrink capacity and a block cannot cover a booking on its bay`() = withApi {
+        val owner = login(OWNER1)
+        val customer = login("+919876502001", "Bays")
+        val detail = detail(location("Sparkle").id) // 3 bays
+        val item = detail.items.first { it.name == "Basic wash" }
+        val start = slot(detail.location.id, listOf(item.id))
+        val s = Instant.parse(start)
+        val closeBays = post("/v1/provider/locations/${detail.location.id}/blocks", BlockRequest(s.toString(), s.plusSeconds(1800).toString(), "Servicing", listOf(1, 2)), owner)
+        assertEquals(HttpStatusCode.Created, closeBays.status, closeBays.bodyAsText())
+        val order: OrderDto = place(customer, detail, "Basic wash", start).body()
+        assertEquals(3, order.bay, "only bay 3 is open")
+        assertEquals(HttpStatusCode.Conflict, place(login("+919876502002", "Two"), detail, "Basic wash", start).status, "the last bay is gone")
+        pay(customer, order.id)
+        val clash = post("/v1/provider/locations/${detail.location.id}/blocks", BlockRequest(s.toString(), s.plusSeconds(1800).toString(), "x", listOf(3)), owner)
+        assertEquals(HttpStatusCode.Conflict, clash.status)
+        assertTrue(clash.body<ErrorBody>().message.startsWith("Bay 3 has a booking"), clash.body<ErrorBody>().message)
+    }
+
+    @Test
+    fun `a daily closure repeats and shows in availability and the closures list`() = withApi {
+        val owner = login(OWNER1)
+        val detail = detail(location("Sparkle").id)
+        val item = detail.items.first { it.name == "Basic wash" }
+        val d1 = LocalDate.now(ZoneId.of(IST)).plusDays(2)
+        val from = d1.atTime(13, 0).atZone(ZoneId.of(IST)).toInstant()
+        val created = post("/v1/provider/locations/${detail.location.id}/blocks", BlockRequest(from.toString(), from.plusSeconds(3600).toString(), "Lunch", null, "DAILY"), owner)
+        assertEquals(HttpStatusCode.Created, created.status, created.bodyAsText())
+        for (offset in 0..2) {
+            val day = d1.plusDays(offset.toLong())
+            val slots: List<SlotDto> = get("/v1/locations/${detail.location.id}/availability?date=$day&itemIds=${item.id}").body()
+            val one = slots.first { Instant.parse(it.startsAt) == day.atTime(13, 0).atZone(ZoneId.of(IST)).toInstant() }
+            assertFalse(one.bookable, "lunch is closed on $day")
+        }
+        assertTrue(get("/v1/provider/locations/${detail.location.id}/closures", owner).body<List<BlockDto>>().any { it.repeat == "DAILY" && it.reason == "Lunch" })
+    }
+
+    @Test
+    fun `add-ons use no bay time and out-of-stock services cannot be booked`() = withApi {
+        val customer = login("+919876502011", "Addon")
+        val detail = detail(location("Sparkle").id)
+        val basic = detail.items.first { it.name == "Basic wash" }
+        val under = detail.items.first { it.name == "Underbody wash" }
+        val start = slot(detail.location.id, listOf(basic.id))
+        val res = post("/v1/orders", PlaceOrderRequest(detail.location.id, listOf(basic.id, under.id), "SEDAN", start), customer)
+        assertEquals(HttpStatusCode.Created, res.status, res.bodyAsText())
+        val order = res.body<OrderDto>()
+        assertEquals(1800, java.time.Duration.between(Instant.parse(order.startsAt), Instant.parse(order.endsAt)).seconds, "the add-on does not hold the bay longer")
+        assertEquals(2, order.lines.size)
+
+        val bubble = detail(location("Bubble Bay").id)
+        val ceramic = bubble.items.first { it.name == "Ceramic spray" }
+        val basicBubble = bubble.items.first { it.name == "Basic wash" }
+        val oos = post("/v1/orders", PlaceOrderRequest(bubble.location.id, listOf(basicBubble.id, ceramic.id), "SEDAN", slot(bubble.location.id, listOf(basicBubble.id))), customer)
+        assertEquals("out_of_stock", oos.body<ErrorBody>().code)
+    }
+
+    @Test
+    fun `a paid booking the vendor does not accept in time is declined and refunded`() = withApi {
+        val owner = login(OWNER1)
+        val detail = detail(location("Sparkle").id)
+        put("/v1/provider/locations/${detail.location.id}", UpdateLocationRequest(autoAccept = false), owner)
+        val customer = login("+919876502021", "Waiter")
+        val order: OrderDto = place(customer, detail, "Basic wash", slot(detail.location.id, listOf(detail.items.first { it.name == "Basic wash" }.id))).body()
+        val paid: OrderDto = pay(customer, order.id).body()
+        assertEquals("PAID", paid.status)
+        assertNotNull(paid.acceptBy)
+        assertEquals(0, ctx.orders.expireUnaccepted(), "not yet due")
+        ctx.repos.orders.update(ctx.repos.orders.byId(order.id)!!.copy(updatedAt = Instant.now().minusSeconds(11 * 60)))
+        assertEquals(1, ctx.orders.expireUnaccepted())
+        val view: OrderDetailDto = get("/v1/orders/${order.id}", customer).body()
+        assertEquals("REJECTED", view.order.status)
+        assertEquals(order.totalMinor, ctx.repos.payments.byOrder(order.id)!!.refundedMinor)
+        assertEquals(0, ctx.repos.ledger.totals(ctx.tenant("carwash").id, null, null).values.sum())
+    }
+
+    @Test
+    fun `a walk-in with a plate is checked in straight away and the owner can sign in at the lock screen with the Owner PIN`() = withApi {
+        val owner = login(OWNER1)
+        val detail = detail(location("Sparkle").id)
+        val item = detail.items.first { it.name == "Basic wash" }
+        val res = post("/v1/provider/walk-ins", WalkInRequest(detail.location.id, listOf(item.id), "HATCHBACK", slot(detail.location.id, listOf(item.id)), "Raju", plate = "KA 53 E 2210"), owner)
+        assertEquals(HttpStatusCode.Created, res.status, res.bodyAsText())
+        val o = res.body<OrderDto>()
+        assertEquals("CHECKED_IN", o.status)
+        assertEquals("KA 53 E 2210", o.assetLabel)
+        assertNotNull(o.bay)
+        val pinLogin = post("/v1/auth/pin", StaffLoginRequest(OWNER1, Seeder.OWNER_PIN))
+        assertEquals(HttpStatusCode.OK, pinLogin.status, pinLogin.bodyAsText())
+        assertEquals("PROVIDER_OWNER", pinLogin.body<AuthResponse>().user.role)
+        assertEquals(HttpStatusCode.Unauthorized, post("/v1/auth/pin", StaffLoginRequest(OWNER1, "000000")).status)
+    }
+
+    @Test
+    fun `owner overview, earnings with fees and the CSV statement agree with the ledger`() = withApi {
+        val owner = login(OWNER1)
+        val overview: com.odyssey.core.service.Overview = get("/v1/provider/overview?range=week", owner).body()
+        assertTrue(overview.netMinor > 0 && overview.bookings > 0)
+        assertEquals(7, overview.heatmap.size); assertEquals(13, overview.heatmap.first().size)
+        assertTrue(overview.heatmap.flatten().all { it in 0..3 })
+
+        assertEquals(HttpStatusCode.Forbidden, get("/v1/provider/earnings?range=month", owner).status, "earnings need the Owner PIN")
+        val e: com.odyssey.core.service.EarningsReport = get("/v1/provider/earnings?range=month", owner, Seeder.OWNER_PIN).body()
+        assertEquals(e.serviceMinor - e.commissionMinor - e.gatewayFeeMinor, e.netMinor, "net = service - commission - gateway fee")
+        assertTrue(e.gatewayFeeMinor > 0 && e.commissionBps in 1000..1500)
+        assertNotNull(e.bankMasked)
+        val csv = get("/v1/provider/statement?range=month", owner, Seeder.OWNER_PIN).bodyAsText()
+        assertTrue(csv.lines().first().startsWith("code,start,customer"))
+        assertEquals(e.orders, csv.lines().size - 1)
+    }
+
+    @Test
+    fun `bulk menu edits need the PIN for prices only and vendors can reply to reviews`() = withApi {
+        val owner = login(OWNER1)
+        val loc = get("/v1/provider/me", owner).body<ProviderDto>().locations.single()
+        val items: List<ItemDto> = get("/v1/provider/locations/${loc.id}/items", owner).body()
+        val tyre = items.first { it.name == "Tyre shine" }
+        val noPin = put("/v1/provider/menu/bulk", BulkEditRequest(listOf(loc.id), listOf(BulkEditItem("Tyre shine", prices = mapOf("SEDAN" to 12_000L)))), owner)
+        assertEquals(HttpStatusCode.Forbidden, noPin.status)
+        val stock = put("/v1/provider/menu/bulk", BulkEditRequest(listOf(loc.id), listOf(BulkEditItem("Tyre shine", outOfStock = true))), owner)
+        assertEquals(HttpStatusCode.OK, stock.status, stock.bodyAsText())
+        assertTrue(get("/v1/provider/locations/${loc.id}/items", owner).body<List<ItemDto>>().first { it.id == tyre.id }.outOfStock)
+        assertEquals(HttpStatusCode.OK, put("/v1/provider/menu/bulk", BulkEditRequest(listOf(loc.id), listOf(BulkEditItem("Tyre shine", prices = mapOf("SEDAN" to 12_000L)))), owner, Seeder.OWNER_PIN).status)
+
+        val reviews: List<ReviewDto> = get("/v1/provider/reviews?limit=5", owner).body()
+        assertTrue(reviews.isNotEmpty())
+        val replied = post("/v1/provider/reviews/${reviews.first().id}/reply", ReplyRequest("Thank you, see you again"), owner)
+        assertEquals("Thank you, see you again", replied.body<ReviewDto>().reply)
+    }
+
+    @Test
+    fun `commission rules pick the most specific rate and previews match the design`() = withApi {
+        val admin = login(ADMIN)
+        val customer = login("+919876502031", "Rules")
+        val shine = detail(location("Shine Street").id)
+        val a: OrderDto = place(login("+919876502032", "S"), shine, "Basic wash", slot(shine.location.id, listOf(shine.items.first { it.name == "Basic wash" }.id))).body()
+        assertEquals(1200, ctx.repos.orders.byId(a.id)!!.commissionBps, "vendor rule (12%) beats the legacy vendor rate")
+        val bubble = detail(location("Bubble Bay").id)
+        val full = bubble.items.first { it.name == "Full detailing" }
+        val d = post("/v1/orders", PlaceOrderRequest(bubble.location.id, listOf(full.id), "SEDAN", slot(bubble.location.id, listOf(full.id))), customer).body<OrderDto>()
+        assertEquals(1000, ctx.repos.orders.byId(d.id)!!.commissionBps, "the Detailing category rule applies")
+        val basic = bubble.items.first { it.name == "Basic wash" }
+        assertEquals(1500, ctx.repos.orders.byId(post("/v1/orders", PlaceOrderRequest(bubble.location.id, listOf(basic.id), "SEDAN", slot(bubble.location.id, listOf(basic.id), skip = 6)), customer).body<OrderDto>().id)!!.commissionBps, "the default applies")
+
+        val rule = post("/v1/admin/commission-rules", RuleRequest("VENDOR", ctx.repos.providers.list(ctx.tenant("carwash").id).first { it.name.startsWith("Bubble") }.id, 800, Instant.now().plusSeconds(86400 * 30).toString()), admin)
+        assertEquals(HttpStatusCode.Created, rule.status, rule.bodyAsText())
+        val later: OrderDto = post("/v1/orders", PlaceOrderRequest(bubble.location.id, listOf(basic.id), "HATCHBACK", slot(bubble.location.id, listOf(basic.id), skip = 8)), login("+919876502033", "Later")).body()
+        assertEquals(1500, ctx.repos.orders.byId(later.id)!!.commissionBps, "a rule that starts next month does not apply yet")
+        assertEquals(4, get("/v1/admin/commission-rules", admin).body<List<RuleDto>>().size)
+        val preview: com.odyssey.core.service.RulePreview = get("/v1/admin/commission-preview?serviceMinor=50000&rateBps=1200", admin).body()
+        assertEquals(listOf(6000L, 650L, 43350L), listOf(preview.commissionMinor, preview.gatewayFeeMinor, preview.payoutMinor))
+        assertEquals(HttpStatusCode.BadRequest, post("/v1/admin/commission-rules", RuleRequest("VENDOR", "x", 6000, Instant.now().toString()), admin).status)
+    }
+
+    @Test
+    fun `payout batches skip held vendors, fail on a bad IFSC and succeed on retry`() = withApi {
+        val admin = login(ADMIN)
+        val owner = login(OWNER1)
+        val tenant = ctx.tenant("carwash")
+        val sparkle = ctx.repos.providers.list(tenant.id).first { it.name.startsWith("Sparkle") }
+        var batch: com.odyssey.core.service.Batch = get("/v1/admin/payments/batch", admin).body()
+        assertEquals("READY", batch.rows.first { it.providerId == sparkle.id }.status)
+        assertTrue(batch.netMinor > 0 && batch.vendors >= 4)
+
+        put("/v1/admin/providers/${sparkle.id}/hold", HoldRequest(true), admin)
+        batch = get("/v1/admin/payments/batch", admin).body()
+        assertEquals("HELD", batch.rows.first { it.providerId == sparkle.id }.status)
+        assertTrue(postEmpty("/v1/admin/payouts/run", admin).body<List<PayoutDto>>().none { it.providerId == sparkle.id }, "held vendors are skipped")
+        put("/v1/admin/providers/${sparkle.id}/hold", HoldRequest(false), admin)
+
+        assertEquals(HttpStatusCode.OK, put("/v1/provider/bank", BankRequest("Sparkle", "123456781000", "BADIFSC"), owner, Seeder.OWNER_PIN).status)
+        val failed = postEmpty("/v1/admin/payouts/run", admin).body<List<PayoutDto>>().first { it.providerId == sparkle.id }
+        assertEquals("FAILED", failed.status)
+        assertEquals("FAILED", get("/v1/admin/payments/batch", admin).body<com.odyssey.core.service.Batch>().rows.first { it.providerId == sparkle.id }.status)
+        assertTrue(get("/v1/admin/dashboard?range=30d", admin).body<com.odyssey.core.service.Dashboard>().alerts.any { it.kind == "Payout" })
+
+        assertEquals(HttpStatusCode.OK, put("/v1/provider/bank", BankRequest("Sparkle", "123456781000", "HDFC0000001"), owner, Seeder.OWNER_PIN).status)
+        val retry = postEmpty("/v1/admin/payouts/${failed.id}/retry", admin)
+        assertEquals(HttpStatusCode.OK, retry.status, retry.bodyAsText())
+        assertEquals("PROCESSED", retry.body<PayoutDto>().status)
+        assertEquals(0, ctx.repos.ledger.totals(tenant.id, null, null).values.sum())
+    }
+
+    @Test
+    fun `dashboard, customers, moderation and document review`() = withApi {
+        val admin = login(ADMIN)
+        val d: com.odyssey.core.service.Dashboard = get("/v1/admin/dashboard?range=30d", admin).body()
+        assertEquals(30, d.series.size)
+        assertTrue(d.gmvMinor > 0 && d.bookings > 0 && d.vendorsLive == 4 && d.vendorsInReview == 1)
+        assertTrue(d.topVendors.size in 1..5 && d.topVendors.zipWithNext().all { (a, b) -> a.gmvMinor >= b.gmvMinor })
+        assertTrue(d.alerts.map { it.kind }.containsAll(listOf("Support", "Vendor")))
+        assertEquals(1, get("/v1/admin/dashboard?range=today", admin).body<com.odyssey.core.service.Dashboard>().series.size)
+
+        val customers: List<com.odyssey.core.service.CustomerRow> = get("/v1/admin/customers", admin).body()
+        val top = customers.first()
+        assertTrue(top.bookings > 0 && top.spendMinor > 0)
+        assertEquals(HttpStatusCode.NoContent, put("/v1/admin/customers/${top.id}/active", ActiveRequest(false), admin).status)
+        assertEquals(HttpStatusCode.Forbidden, client.post("/v1/auth/verify") { contentType(ContentType.Application.Json); setBody(VerifyRequest(top.phone, "123456")) }.status, "a blocked customer cannot sign in")
+
+        // an unusually high price shows up for review and can be approved
+        val owner = login("+919000000003")
+        val loc = get("/v1/provider/me", owner).body<ProviderDto>().locations.single()
+        val foam = get("/v1/provider/locations/${loc.id}/items", owner).body<List<ItemDto>>().first { it.name == "Foam wash" }
+        put("/v1/provider/locations/${loc.id}/items/${foam.id}", ItemRequest(foam.name, foam.description, foam.category, foam.durationMinutes, true, foam.prices + ("HATCHBACK" to 500_000L)), owner, Seeder.OWNER_PIN)
+        val flagged: List<com.odyssey.core.service.OutlierRow> = get("/v1/admin/moderation/menu", admin).body()
+        val hit = flagged.first { it.itemId == foam.id }
+        assertEquals("Hatchback", hit.variant)
+        post("/v1/admin/moderation/menu/${foam.id}", OutlierActionRequest(false), admin)
+        assertTrue(get("/v1/admin/moderation/menu", admin).body<List<com.odyssey.core.service.OutlierRow>>().none { it.itemId == foam.id })
+
+        val pending = ctx.repos.providers.list(ctx.tenant("carwash").id).first { it.name == "Gleam Garage" }
+        val reviewed = post("/v1/admin/providers/${pending.id}/documents/GST", DocReviewRequest("NEEDS_FIX", "Number does not match"), admin).body<ProviderDto>()
+        assertEquals("NEEDS_FIX", reviewed.documents.first { it.type == "GST" }.state)
+        assertEquals(HttpStatusCode.NotFound, post("/v1/admin/providers/${pending.id}/documents/NOPE", DocReviewRequest("VERIFIED"), admin).status)
     }
 }
 

@@ -75,6 +75,7 @@ class AppContext(val config: AppConfig, val clock: Clock = SystemClock) {
     val providers = ProviderService(repos, uow, pins, auditor, clock, ids)
     val admin = AdminService(repos, uow, ledger, auditor, clock, ids)
     val discovery = Discovery(repos, availability, clock)
+    val reports = ProviderReports(repos, clock)
     val auth = AuthService(repos, ids, identity, tokens, clock)
 
     fun tenant(slug: String): Tenant = repos.tenants.bySlug(slug) ?: throw notFound("Tenant")

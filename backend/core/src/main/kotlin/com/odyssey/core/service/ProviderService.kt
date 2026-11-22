@@ -150,9 +150,9 @@ class ProviderService(
         auditor.log(actor, "STAFF_REMOVED", "user", staffUserId)
     }
 
-    /** Staff sign in on the shared counter device with a 4-digit PIN. Returns the user on success. */
+    /** Counter sign-in on the shared device: staff and managers use their 4-digit PIN, the owner the 6-digit Owner PIN. */
     fun staffLogin(tenant: Tenant, phone: String, pin: String): User {
-        val user = r.users.byPhone(tenant.id, phone)?.takeIf { it.active && (it.role == Role.PROVIDER_MANAGER || it.role == Role.PROVIDER_STAFF) }
+        val user = r.users.byPhone(tenant.id, phone)?.takeIf { it.active && it.role.isProvider }
             ?: throw DomainException("login_failed", "Wrong phone or PIN", 401)
         val now = clock.now()
         if (user.lockedUntil != null && user.lockedUntil > now) throw DomainException("pin_locked", "Too many wrong PINs. Try again later.", 423)
@@ -192,7 +192,7 @@ class ProviderService(
     }
 
     fun saveItem(tenant: Tenant, actor: Actor, ownerPin: String?, locationId: Id, itemId: Id?, name: String, description: String, category: String,
-                 durationMinutes: Int, active: Boolean, prices: Map<String, Long>): CatalogItem = uow.run {
+                 durationMinutes: Int, active: Boolean, prices: Map<String, Long>, baysUsed: Int = 1, outOfStock: Boolean = false): CatalogItem = uow.run {
         ownLocation(actor, locationId)
         if (actor.role == Role.PROVIDER_STAFF) throw forbidden()
         if (durationMinutes !in 5..480) throw invalid("Duration must be between 5 and 480 minutes")
@@ -204,7 +204,8 @@ class ProviderService(
             requireOwner(actor)
             verifyPin(actor, ownerPin)
         }
-        val item = CatalogItem(existing?.id ?: ids.newId(), tenant.id, locationId, name.trim(), description, category, durationMinutes, active, prices)
+        if (baysUsed !in 0..location(locationId).capacity) throw invalid("Bays used must be between 0 and the number of bays")
+        val item = CatalogItem(existing?.id ?: ids.newId(), tenant.id, locationId, name.trim(), description, category, durationMinutes, active, prices, baysUsed, outOfStock, priceReviewed = existing?.priceReviewed == true && existing.prices == prices)
         if (existing == null) r.catalog.insert(item) else r.catalog.update(item)
         auditor.log(actor, if (existing == null) "ITEM_ADDED" else "ITEM_UPDATED", "item", item.id, name)
         item
@@ -219,18 +220,29 @@ class ProviderService(
         auditor.log(actor, "ITEM_DELETED", "item", itemId)
     }
 
-    fun addBlock(tenant: Tenant, actor: Actor, locationId: Id, from: java.time.Instant, to: java.time.Instant, reason: String): Block = uow.run(locationId) {
+    fun addBlock(
+        tenant: Tenant, actor: Actor, locationId: Id, from: java.time.Instant, to: java.time.Instant, reason: String,
+        bays: List<Int>? = null, repeat: Repeat = Repeat.NONE,
+    ): Block = uow.run(locationId) {
         val location = ownLocation(actor, locationId)
         if (actor.role == Role.PROVIDER_STAFF) throw forbidden()
         if (!to.isAfter(from)) throw invalid("Block must end after it starts")
-        val flow = tenant.config.flow
-        val clash = r.orders.occupying(location.id, from, to, flow.occupying(), clock.now())
-        if (clash.isNotEmpty()) {
-            throw conflict("has_bookings", "${clash.size} booking(s) already exist in that time. Cancel them first, with a reason.")
+        if (bays != null && bays.any { it !in 1..location.capacity }) throw invalid("That bay does not exist")
+        val zone = java.time.ZoneId.of(location.timezone)
+        val block = Block(ids.newId(), tenant.id, locationId, from, to, reason, actor.userId ?: "", bays?.sorted()?.takeIf { it.isNotEmpty() }, repeat)
+        // A block cannot cover a booking. For a repeating block we look two weeks ahead.
+        val now = clock.now()
+        val horizon = if (repeat == Repeat.NONE) to else maxOf(to, now).plus(java.time.Duration.ofDays(14))
+        val windows = BlockWindows.expand(block, maxOf(from, now.minus(java.time.Duration.ofDays(1))), horizon, zone)
+        val orders = r.orders.occupying(location.id, windows.minOfOrNull { it.start } ?: from, windows.maxOfOrNull { it.end } ?: to, tenant.config.flow.occupying(), now)
+        val clash = orders.firstOrNull { o -> windows.any { w -> o.startsAt < w.end && o.endsAt > w.start && (w.bays == null || o.bay in w.bays) } }
+        if (clash != null) {
+            val time = java.time.format.DateTimeFormatter.ofPattern("h:mm a", java.util.Locale.ENGLISH).withZone(zone).format(clash.startsAt)
+            val where = clash.bay?.let { "Bay $it" } ?: "A bay"
+            throw conflict("has_bookings", "$where has a booking at $time (${clash.assetLabel ?: clash.code}). Cancel it with a reason first. This counts against your cancellation score.")
         }
-        val block = Block(ids.newId(), tenant.id, locationId, from, to, reason, actor.userId ?: "")
         r.blocks.insert(block)
-        auditor.log(actor, "SLOT_BLOCKED", "location", locationId, "$from..$to $reason")
+        auditor.log(actor, "SLOT_BLOCKED", "location", locationId, "$from..$to $reason ${bays ?: "all bays"} $repeat")
         block
     }
 
@@ -242,6 +254,8 @@ class ProviderService(
     }
 
     // ---- helpers ---------------------------------------------------------------------------------------------
+
+    private fun location(id: Id): Location = r.locations.byId(id) ?: throw notFound("Location")
 
     private fun requireOwner(actor: Actor) { if (actor.role != Role.PROVIDER_OWNER) throw forbidden("Only the owner can do this") }
 
@@ -255,5 +269,57 @@ class ProviderService(
     private fun ownLocation(actor: Actor, locationId: Id): Location {
         if (!actor.role.isProvider) throw forbidden()
         return r.locations.byId(locationId)?.takeIf { it.providerId == actor.providerId } ?: throw notFound("Location")
+    }
+
+    data class BulkEdit(val name: String, val prices: Map<String, Long>?, val active: Boolean?, val outOfStock: Boolean?)
+
+    /** Applies the same changes to the services of several outlets, matched by name. Price changes need the Owner PIN. */
+    fun bulkEdit(tenant: Tenant, actor: Actor, ownerPin: String?, locationIds: List<Id>, edits: List<BulkEdit>): Int = uow.run {
+        if (actor.role == Role.PROVIDER_STAFF) throw forbidden()
+        if (edits.any { it.prices != null }) { requireOwner(actor); verifyPin(actor, ownerPin) }
+        val valid = tenant.config.variants.options.map { it.key }.toSet()
+        var changed = 0
+        for (locationId in locationIds) {
+            ownLocation(actor, locationId)
+            val items = r.catalog.byLocation(locationId, activeOnly = false)
+            for (e in edits) {
+                val item = items.firstOrNull { it.name.equals(e.name, true) } ?: continue
+                if (e.prices != null && (e.prices.keys.any { it !in valid } || e.prices.values.any { it < 0 })) throw invalid("Invalid prices for ${e.name}")
+                r.catalog.update(item.copy(prices = e.prices ?: item.prices, active = e.active ?: item.active, outOfStock = e.outOfStock ?: item.outOfStock, priceReviewed = if (e.prices != null) false else item.priceReviewed))
+                changed++
+            }
+        }
+        auditor.log(actor, "MENU_BULK_EDIT", "location", locationIds.joinToString(","), "$changed changes")
+        changed
+    }
+
+    fun replyToReview(actor: Actor, reviewId: Id, text: String): Review = uow.run {
+        if (actor.role == Role.PROVIDER_STAFF || !actor.role.isProvider) throw forbidden()
+        val review = r.reviews.byId(reviewId) ?: throw notFound("Review")
+        ownLocation(actor, review.locationId)
+        if (text.isBlank()) throw invalid("Write a reply")
+        val updated = review.copy(reply = text.trim().take(500), replyAt = clock.now())
+        r.reviews.update(updated)
+        auditor.log(actor, "REVIEW_REPLY", "review", reviewId)
+        updated
+    }
+
+    /** Back office marks a document as checked, or asks the vendor to fix it. */
+    fun reviewDocument(tenant: Tenant, actor: Actor, providerId: Id, type: String, state: DocState, note: String?): Provider = uow.run {
+        if (actor.role != Role.ADMIN && actor.role != Role.SUPPORT) throw forbidden()
+        val provider = provider(tenant, providerId)
+        if (provider.documents.none { it.type == type }) throw notFound("Document")
+        val updated = provider.copy(documents = provider.documents.map { if (it.type == type) it.copy(state = state, note = note) else it })
+        r.providers.update(updated)
+        auditor.log(actor, "DOCUMENT_${state.name}", "provider", providerId, "$type ${note ?: ""}")
+        updated
+    }
+
+    fun setPayoutHold(tenant: Tenant, actor: Actor, providerId: Id, hold: Boolean): Provider = uow.run {
+        if (actor.role != Role.ADMIN && actor.role != Role.FINANCE) throw forbidden()
+        val updated = provider(tenant, providerId).copy(payoutHold = hold)
+        r.providers.update(updated)
+        auditor.log(actor, if (hold) "PAYOUT_HELD" else "PAYOUT_RELEASED", "provider", providerId)
+        updated
     }
 }

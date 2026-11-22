@@ -76,6 +76,7 @@ interface CatalogRepo {
     fun insert(item: CatalogItem)
     fun update(item: CatalogItem)
     fun delete(id: Id)
+    fun all(tenantId: Id): List<CatalogItem>
 }
 
 interface BlockRepo {
@@ -102,12 +103,15 @@ interface OrderRepo {
     /** Orders by this user (or anyone when null) that used the code and are not dead (expired, cancelled, rejected, unpaid). */
     fun countPromoUses(tenantId: Id, code: String, userId: Id?): Int
     fun dueForReminder(from: Instant, to: Instant, states: List<String>): List<Order>
+    /** Orders still in [state] that were last updated before [before]. */
+    fun staleIn(state: String, before: Instant): List<Order>
 }
 
 interface PaymentRepo {
     fun byOrder(orderId: Id): Payment?
     fun insert(payment: Payment)
     fun update(payment: Payment)
+    fun list(tenantId: Id, limit: Int, refundedOnly: Boolean): List<Payment>
 }
 
 interface LedgerRepo {
@@ -115,10 +119,15 @@ interface LedgerRepo {
     fun payableFor(orderId: Id): Long
     fun totals(tenantId: Id, from: Instant?, to: Instant?): Map<String, Long>
     fun forOrder(orderId: Id): List<LedgerEntry>
+    /** Sum per account over the given orders (negative = credit). */
+    fun sumByAccount(orderIds: List<Id>): Map<String, Long>
+    fun recent(tenantId: Id, limit: Int): List<LedgerEntry>
 }
 
 interface PayoutRepo {
     fun insert(payout: Payout)
+    fun update(payout: Payout)
+    fun byId(id: Id): Payout?
     fun list(tenantId: Id, providerId: Id?): List<Payout>
 }
 
@@ -126,6 +135,8 @@ interface ReviewRepo {
     fun insert(review: Review)
     fun byOrder(orderId: Id): Review?
     fun byLocation(locationId: Id, limit: Int): List<Review>
+    fun byId(id: Id): Review?
+    fun update(review: Review)
 }
 
 interface AssetRepo {
@@ -167,6 +178,12 @@ interface TicketRepo {
     fun byProvider(providerId: Id): List<Ticket>
 }
 
+interface RuleRepo {
+    fun list(tenantId: Id): List<CommissionRule>
+    fun insert(rule: CommissionRule)
+    fun delete(tenantId: Id, id: Id)
+}
+
 interface NotificationRepo {
     fun insert(n: Notification)
     fun list(userId: Id, limit: Int): List<Notification>
@@ -198,4 +215,5 @@ class Repos(
     val tickets: TicketRepo,
     val notifications: NotificationRepo,
     val devices: DeviceRepo,
+    val rules: RuleRepo,
 )

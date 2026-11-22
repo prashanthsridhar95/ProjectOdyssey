@@ -5,20 +5,32 @@ import com.odyssey.core.domain.*
 import com.odyssey.core.ports.Clock
 import com.odyssey.core.ports.Ids
 import com.odyssey.core.ports.LedgerRepo
+import java.time.Instant
 
 data class Quote(val subtotalMinor: Long, val taxMinor: Long, val feeMinor: Long, val totalMinor: Long, val commissionBps: Int, val commissionMinor: Long, val discountMinor: Long = 0)
 
 fun bps(amountMinor: Long, bps: Int): Long = Math.round(amountMinor * bps / 10_000.0)
 
+/** Finds the commission rate that applies to a line: the most specific active rule wins (outlet, then vendor, then category, then default). */
+class CommissionResolver(private val rules: List<CommissionRule>, private val config: TenantConfig) {
+    fun rateBps(provider: Provider?, locationId: Id?, category: String, at: Instant): Int {
+        val active = rules.filter { it.effectiveFrom <= at && (it.effectiveUntil == null || it.effectiveUntil > at) }
+        fun pick(scope: RuleScope, target: String?) = target?.let { t -> active.filter { it.scope == scope && it.target == t }.maxByOrNull { it.effectiveFrom }?.rateBps }
+        return pick(RuleScope.OUTLET, locationId) ?: pick(RuleScope.VENDOR, provider?.id) ?: provider?.commissionBps ?: pick(RuleScope.CATEGORY, category.takeIf { it.isNotBlank() })
+            ?: config.money.defaultCommissionBps
+    }
+}
+
 object Pricing {
     /** Commission is taken on the service amount only, never on tax or customer fees. */
-    fun quote(config: TenantConfig, provider: Provider?, subtotalMinor: Long, discountMinor: Long = 0): Quote {
+    fun quote(config: TenantConfig, provider: Provider?, subtotalMinor: Long, discountMinor: Long = 0, commissionMinorOverride: Long? = null): Quote {
         val commissionBps = provider?.commissionBps ?: config.money.defaultCommissionBps
+        val commission = commissionMinorOverride ?: bps(subtotalMinor, commissionBps)
         val fee = config.money.customerFeeMinor
         // Tax applies to the service plus the convenience fee; a promo reduces what the customer pays after tax.
         val tax = bps(subtotalMinor + fee, config.money.taxBps)
         val discount = minOf(discountMinor, subtotalMinor + fee + tax)
-        return Quote(subtotalMinor, tax, fee, subtotalMinor + tax + fee - discount, commissionBps, bps(subtotalMinor, commissionBps), discount)
+        return Quote(subtotalMinor, tax, fee, subtotalMinor + tax + fee - discount, if (subtotalMinor > 0) Math.round(commission * 10_000.0 / subtotalMinor).toInt() else commissionBps, commission, discount)
     }
 }
 
@@ -31,6 +43,7 @@ object Accounts {
     const val TAX_PAYABLE = "tax_payable"
     const val CUSTOMER_FEE = "customer_fee"
     const val BANK = "bank"
+    const val GATEWAY_FEE = "gateway_fee"
 }
 
 class Ledger(private val repo: LedgerRepo, private val ids: Ids, private val clock: Clock) {
@@ -46,17 +59,23 @@ class Ledger(private val repo: LedgerRepo, private val ids: Ids, private val clo
     fun paymentCaptured(o: Order) = post(o.tenantId, o.id, "PAYMENT_CAPTURED", listOf(Accounts.GATEWAY to o.totalMinor, Accounts.ESCROW to -o.totalMinor))
 
     /** Completed or no-show: the provider earns the service amount minus commission; tax and fee go to their accounts. */
-    fun settled(o: Order) = post(
-        o.tenantId, o.id, "SETTLED",
-        listOf(
-            Accounts.ESCROW to o.totalMinor,
-            Accounts.PROVIDER_PAYABLE to -(o.subtotalMinor - o.commissionMinor),
+    fun settled(o: Order, gatewayFeeBps: Int = 0): Long {
+        val fee = bps(o.subtotalMinor, gatewayFeeBps)
+        post(
+            o.tenantId, o.id, "SETTLED",
+            listOf(
+                Accounts.ESCROW to o.totalMinor,
+                Accounts.PROVIDER_PAYABLE to -(o.subtotalMinor - o.commissionMinor - fee),
+                // The gateway's cut is recovered from the vendor's share.
+                Accounts.GATEWAY_FEE to -fee,
             // A promo is funded by the tenant, so it comes out of the tenant's commission, not the vendor's share.
-            Accounts.TENANT_COMMISSION to -(o.commissionMinor - o.discountMinor),
-            Accounts.TAX_PAYABLE to -o.taxMinor,
-            Accounts.CUSTOMER_FEE to -o.feeMinor,
-        ),
-    )
+                Accounts.TENANT_COMMISSION to -(o.commissionMinor - o.discountMinor),
+                Accounts.TAX_PAYABLE to -o.taxMinor,
+                Accounts.CUSTOMER_FEE to -o.feeMinor,
+            ),
+        )
+        return fee
+    }
 
     fun refundedFull(o: Order) = post(o.tenantId, o.id, "REFUND_FULL", listOf(Accounts.ESCROW to o.totalMinor, Accounts.GATEWAY to -o.totalMinor))
 

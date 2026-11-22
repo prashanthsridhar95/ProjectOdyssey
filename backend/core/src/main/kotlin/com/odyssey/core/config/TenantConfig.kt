@@ -27,7 +27,7 @@ data class TenantConfig(
 )
 
 @Serializable
-data class ServiceArea(val name: String, val lat: Double, val lng: Double)
+data class ServiceArea(val name: String, val lat: Double, val lng: Double, val radiusKm: Double = 30.0)
 
 @Serializable
 data class Message(val title: String, val body: String)
@@ -64,6 +64,8 @@ data class AvailabilityConfig(
     val leadMinutes: Int = 30,
     val windowDays: Int = 7,
     val holdMinutes: Int = 5,
+    /** How long a vendor has to accept a paid booking before it is declined and refunded. */
+    val acceptMinutes: Int = 10,
 )
 
 @Serializable
@@ -75,6 +77,10 @@ data class MoneyConfig(
     val customerFeeMinor: Long = 0,
     /** Commission the tenant takes from a provider unless the provider has its own rate. */
     val defaultCommissionBps: Int = 1500,
+    /** The payment gateway's cut, recovered from the vendor's share, in basis points of the service amount. */
+    val gatewayFeeBps: Int = 130,
+    /** Day of the week the platform pays vendors. */
+    val payoutWeekday: String = "MONDAY",
 )
 
 @Serializable

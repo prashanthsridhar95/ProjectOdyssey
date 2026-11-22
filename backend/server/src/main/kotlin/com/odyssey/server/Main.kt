@@ -73,7 +73,7 @@ fun Application.module(ctx: AppContext) {
     val sweeper = CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
         while (isActive) {
             delay(ctx.config.holdSweepSeconds * 1000)
-            runCatching { ctx.orders.expireHolds(); ctx.orders.sendReminders() }.onFailure { log.warn("Hold sweep failed", it) }
+            runCatching { ctx.orders.expireHolds(); ctx.orders.expireUnaccepted(); ctx.orders.sendReminders() }.onFailure { log.warn("Hold sweep failed", it) }
         }
     }
     monitor.subscribe(ApplicationStopping) { sweeper.cancel() }

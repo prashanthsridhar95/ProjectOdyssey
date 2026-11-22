@@ -17,7 +17,7 @@ class Auditor(private val repo: AuditRepo, private val ids: Ids, private val clo
 }
 
 data class PlaceOrder(val locationId: Id, val itemIds: List<Id>, val variantKey: String, val startsAt: Instant, val assetId: Id?, val promoCode: String? = null)
-data class WalkIn(val locationId: Id, val itemIds: List<Id>, val variantKey: String, val startsAt: Instant, val customerName: String, val customerPhone: String)
+data class WalkIn(val locationId: Id, val itemIds: List<Id>, val variantKey: String, val startsAt: Instant?, val customerName: String, val customerPhone: String, val plate: String? = null, val checkIn: Boolean = true, val bay: Int? = null)
 
 /**
  * The order engine. Drives any order through the state machine defined in the tenant's [com.odyssey.core.config.OrderFlow].
@@ -37,6 +37,14 @@ class OrderService(
 ) {
     // ---- placing ---------------------------------------------------------------------------------------------
 
+    /** Time a booking holds a bay. Services that use no bay (add-ons done alongside another service) add nothing. */
+    private fun bayMinutes(lines: List<OrderLine>) = lines.filter { it.baysUsed > 0 }.sumOf { it.durationMinutes }
+
+    private fun commissionFor(tenant: Tenant, provider: Provider, location: Location, lines: List<OrderLine>, at: Instant): Long {
+        val resolver = CommissionResolver(r.rules.list(tenant.id), tenant.config)
+        return lines.sumOf { bps(it.priceMinor, resolver.rateBps(provider, location.id, it.category, at)) }
+    }
+
     private class Basket(val location: Location, val provider: Provider, val lines: List<OrderLine>, val durationMinutes: Int)
 
     private fun basket(tenant: Tenant, locationId: Id, itemIds: List<Id>, variantKey: String): Basket {
@@ -48,11 +56,12 @@ class OrderService(
         val unique = itemIds.distinct()
         val items = r.catalog.byIds(unique).filter { it.locationId == location.id && it.active }
         if (items.size != unique.size) throw invalid("One or more services are not available")
+        items.firstOrNull { it.outOfStock }?.let { throw conflict("out_of_stock", "${it.name} is out of stock right now") }
         val lines = items.map { item ->
             val price = item.prices[variantKey] ?: throw invalid("${item.name} is not offered for $variantKey")
-            OrderLine(item.id, item.name, price, item.durationMinutes)
+            OrderLine(item.id, item.name, price, item.durationMinutes, item.baysUsed, item.category)
         }
-        return Basket(location, provider, lines, lines.sumOf { it.durationMinutes })
+        return Basket(location, provider, lines, bayMinutes(lines))
     }
 
     /** Price breakdown for a basket, including an optional promo. Used by checkout before anything is held. */
@@ -60,7 +69,7 @@ class OrderService(
         val b = basket(tenant, locationId, itemIds, variantKey)
         val subtotal = b.lines.sumOf { it.priceMinor }
         val applied = promoCode?.takeIf { it.isNotBlank() }?.let { promos.apply(tenant, customer?.id, it, subtotal) }
-        return Pricing.quote(tenant.config, b.provider, subtotal, applied?.discountMinor ?: 0) to applied
+        return Pricing.quote(tenant.config, b.provider, subtotal, applied?.discountMinor ?: 0, commissionFor(tenant, b.provider, b.location, b.lines, clock.now())) to applied
     }
 
     fun place(tenant: Tenant, customer: User, cmd: PlaceOrder): Order {
@@ -71,9 +80,10 @@ class OrderService(
         val endsAt = cmd.startsAt.plus(Duration.ofMinutes((slots * b.location.slotMinutes).toLong()))
         val subtotal = b.lines.sumOf { it.priceMinor }
         val applied = cmd.promoCode?.takeIf { it.isNotBlank() }?.let { promos.apply(tenant, customer.id, it, subtotal) }
-        val quote = Pricing.quote(tenant.config, b.provider, subtotal, applied?.discountMinor ?: 0)
+        val quote = Pricing.quote(tenant.config, b.provider, subtotal, applied?.discountMinor ?: 0, commissionFor(tenant, b.provider, b.location, b.lines, now))
         return uow.run(b.location.id) {
             availability.ensureBookable(tenant, b.location, cmd.startsAt, b.durationMinutes, now)
+            val bay = availability.assignBay(tenant, b.location, cmd.startsAt, endsAt, now)
             val order = Order(
                 id = ids.newId(), tenantId = tenant.id, code = ids.newCode(), customerId = customer.id,
                 customerName = customer.name, customerPhone = customer.phone,
@@ -83,7 +93,7 @@ class OrderService(
                 subtotalMinor = quote.subtotalMinor, taxMinor = quote.taxMinor, feeMinor = quote.feeMinor, totalMinor = quote.totalMinor,
                 commissionBps = quote.commissionBps, commissionMinor = quote.commissionMinor,
                 holdExpiresAt = now.plus(Duration.ofMinutes(tenant.config.availability.holdMinutes.toLong())),
-                createdAt = now, updatedAt = now, discountMinor = quote.discountMinor, promoCode = applied?.code,
+                createdAt = now, updatedAt = now, discountMinor = quote.discountMinor, promoCode = applied?.code, bay = bay,
             )
             r.orders.insert(order)
             r.orders.addEvent(OrderEvent(order.id, null, order.status, "PLACE", customer.id, null, now))
@@ -96,25 +106,30 @@ class OrderService(
         val b = basket(tenant, cmd.locationId, cmd.itemIds, cmd.variantKey)
         if (!actor.role.isProvider || actor.providerId != b.provider.id) throw forbidden()
         val now = clock.now()
+        val step = b.location.slotMinutes.toLong()
+        // "Now" means the slot we are in; the lead-time rule is for online customers and does not apply to someone standing here.
+        val startsAt = cmd.startsAt ?: Instant.ofEpochSecond(now.epochSecond / (step * 60) * (step * 60))
         val slots = availability.slotsNeeded(b.location, b.durationMinutes)
-        val endsAt = cmd.startsAt.plus(Duration.ofMinutes((slots * b.location.slotMinutes).toLong()))
+        val endsAt = startsAt.plus(Duration.ofMinutes((slots * b.location.slotMinutes).toLong()))
         val subtotal = b.lines.sumOf { it.priceMinor }
-        return uow.run(b.location.id) {
-            availability.ensureBookable(tenant, b.location, cmd.startsAt, b.durationMinutes, now)
+        val created = uow.run(b.location.id) {
+            availability.ensureBookable(tenant, b.location, startsAt, b.durationMinutes, startsAt.minus(Duration.ofMinutes(tenant.config.availability.leadMinutes.toLong() + 1)))
+            val bay = availability.assignBay(tenant, b.location, startsAt, endsAt, now, prefer = cmd.bay) ?: throw conflict("slot_unavailable", "No bay is free then")
             val order = Order(
                 id = ids.newId(), tenantId = tenant.id, code = ids.newCode(), customerId = null,
                 customerName = cmd.customerName, customerPhone = cmd.customerPhone,
                 providerId = b.provider.id, locationId = b.location.id, locationName = b.location.name,
-                assetLabel = null, variantKey = cmd.variantKey, status = tenant.config.flow.accepted,
-                source = OrderSource.WALK_IN, startsAt = cmd.startsAt, endsAt = endsAt, lines = b.lines,
+                assetLabel = cmd.plate?.takeIf { it.isNotBlank() }, variantKey = cmd.variantKey, status = tenant.config.flow.accepted,
+                source = OrderSource.WALK_IN, startsAt = startsAt, endsAt = endsAt, lines = b.lines,
                 subtotalMinor = subtotal, taxMinor = 0, feeMinor = 0, totalMinor = subtotal,
-                commissionBps = 0, commissionMinor = 0, holdExpiresAt = null, createdAt = now, updatedAt = now,
+                commissionBps = 0, commissionMinor = 0, holdExpiresAt = null, createdAt = now, updatedAt = now, bay = bay,
             )
             r.orders.insert(order)
             r.orders.addEvent(OrderEvent(order.id, null, order.status, "WALK_IN", actor.userId, null, now))
             auditor.log(actor, "ORDER_WALK_IN", "order", order.id)
             order
         }
+        return if (cmd.checkIn && tenant.config.flow.transition(created.status, "CHECK_IN") != null) uow.run { apply(tenant, created, "CHECK_IN", actor, null) } else created
     }
 
     // ---- paying ----------------------------------------------------------------------------------------------
@@ -196,10 +211,12 @@ class OrderService(
             if (now.isAfter(cutoff)) throw conflict("too_late", "You can move it up to ${tenant.config.cancellation.fullRefundHoursBefore} hours before it starts")
             if (order.reschedules >= 2) throw conflict("limit_reached", "This ${tenant.config.labels.order.lowercase()} was already moved twice")
             val location = r.locations.byId(order.locationId) ?: throw notFound("Location")
-            val duration = order.lines.sumOf { it.durationMinutes }
+            val duration = bayMinutes(order.lines)
             availability.ensureBookable(tenant, location, newStart, duration, now, excludeOrderId = order.id)
             val slots = availability.slotsNeeded(location, duration)
-            val moved = order.copy(startsAt = newStart, endsAt = newStart.plus(Duration.ofMinutes((slots * location.slotMinutes).toLong())), updatedAt = now, reschedules = order.reschedules + 1, reminded = false)
+            val newEnd = newStart.plus(Duration.ofMinutes((slots * location.slotMinutes).toLong()))
+            val bay = availability.assignBay(tenant, location, newStart, newEnd, now, excludeOrderId = order.id)
+            val moved = order.copy(startsAt = newStart, endsAt = newEnd, updatedAt = now, reschedules = order.reschedules + 1, reminded = false, bay = bay)
             r.orders.update(moved)
             r.orders.addEvent(OrderEvent(order.id, order.status, order.status, "RESCHEDULE", customer.id, "Moved to ${whenText(moved)}", now))
             notifier.sendToProvider(tenant.id, order.providerId, "${tenant.config.labels.order} moved", "${order.customerName} moved to ${whenText(moved)}", order.id)
@@ -246,7 +263,7 @@ class OrderService(
             Effect.REFUND_FULL -> if (hasPayment(order)) { refund(order, order.totalMinor); ledger.refundedFull(order) }
             Effect.REFUND_BY_POLICY -> if (hasPayment(order)) updated = refundByPolicy(tenant, order, updated, now)
             Effect.SETTLE, Effect.SETTLE_NO_SHOW -> if (order.source == OrderSource.APP) {
-                ledger.settled(order)
+                ledger.settled(order, tenant.config.money.gatewayFeeBps)
                 updated = updated.copy(settled = true)
             }
         }
@@ -263,7 +280,7 @@ class OrderService(
         val what = tenant.config.labels.order.lowercase()
         val fallback = when (action) {
             "ACCEPT" -> Message("Your $what is confirmed", "{location}, {when}. Show code {code}.")
-            "REJECT" -> Message("Your $what was declined", "{note} You are being refunded in full.")
+            "REJECT", "AUTO_REJECT" -> Message("Your $what was declined", "{note} You are being refunded in full.")
             "CANCEL_BY_PROVIDER", "ADMIN_CANCEL" -> Message("Your $what was cancelled", "{note} You are being refunded in full.")
             "CHECK_IN" -> Message("Checked in", "{location} has checked you in.")
             "START" -> Message("Work has started", "{services} has started.")
@@ -319,6 +336,21 @@ class OrderService(
         for (tenant in r.tenants.all()) {
             for (order in r.orders.expiredHolds(now, tenant.config.flow.initial)) {
                 runCatching { uow.run { apply(tenant, order, "EXPIRE", Actor.system(tenant.id), null) } }.onSuccess { count++ }
+            }
+        }
+        return count
+    }
+
+    /** Declines and refunds paid bookings the vendor did not accept in time. Run on a timer. */
+    fun expireUnaccepted(): Int {
+        var count = 0
+        val now = clock.now()
+        for (tenant in r.tenants.all()) {
+            val flow = tenant.config.flow
+            if (flow.transition(flow.paid, "AUTO_REJECT") == null) continue
+            val cutoff = now.minus(Duration.ofMinutes(tenant.config.availability.acceptMinutes.toLong()))
+            for (order in r.orders.staleIn(flow.paid, cutoff).filter { it.tenantId == tenant.id }) {
+                runCatching { uow.run { apply(tenant, order, "AUTO_REJECT", Actor.system(tenant.id), "The vendor did not respond in time.") } }.onSuccess { count++ }
             }
         }
         return count

@@ -36,6 +36,7 @@ object Providers : Table("providers") {
     val bank = text("bank").nullable()
     val reviewNote = text("review_note").nullable()
     val createdAt = long("created_at")
+    val payoutHold = bool("payout_hold")
     override val primaryKey = PrimaryKey(id)
 }
 
@@ -72,6 +73,9 @@ object CatalogItems : Table("catalog_items") {
     val durationMinutes = integer("duration_minutes")
     val active = bool("active")
     val prices = text("prices")
+    val baysUsed = integer("bays_used")
+    val outOfStock = bool("out_of_stock")
+    val priceReviewed = bool("price_reviewed")
     override val primaryKey = PrimaryKey(id)
 }
 
@@ -83,6 +87,8 @@ object Blocks : Table("blocks") {
     val endsAt = long("ends_at")
     val reason = varchar("reason", 500)
     val createdBy = varchar("created_by", 36)
+    val bays = varchar("bays", 100).nullable()
+    val repeatRule = varchar("repeat_rule", 10)
     override val primaryKey = PrimaryKey(id)
 }
 
@@ -119,6 +125,7 @@ object Orders : Table("orders") {
     val promoCode = varchar("promo_code", 40).nullable()
     val reminded = bool("reminded")
     val reschedules = integer("reschedules")
+    val bay = integer("bay").nullable()
     override val primaryKey = PrimaryKey(id)
 }
 
@@ -167,6 +174,10 @@ object Payouts : Table("payouts") {
     val orderCount = integer("order_count")
     val status = varchar("status", 32)
     val createdAt = long("created_at")
+    val reference = varchar("reference", 40).nullable()
+    val failureReason = varchar("failure_reason", 200).nullable()
+    val periodFrom = long("period_from").nullable()
+    val periodTo = long("period_to").nullable()
     override val primaryKey = PrimaryKey(id)
 }
 
@@ -180,6 +191,8 @@ object Reviews : Table("reviews") {
     val comment = text("comment")
     val createdAt = long("created_at")
     val tags = text("tags")
+    val reply = text("reply").nullable()
+    val replyAt = long("reply_at").nullable()
     override val primaryKey = PrimaryKey(id)
 }
 
@@ -284,4 +297,18 @@ object Devices : Table("devices") {
     val platform = varchar("platform", 16)
     val createdAt = long("created_at")
     override val primaryKey = PrimaryKey(token)
+}
+
+object CommissionRules : Table("commission_rules") {
+    val id = varchar("id", 36)
+    val tenantId = varchar("tenant_id", 36)
+    val scope = varchar("scope", 16)
+    val target = varchar("target", 100)
+    val targetLabel = varchar("target_label", 200)
+    val rateBps = integer("rate_bps")
+    val effectiveFrom = long("effective_from")
+    val effectiveUntil = long("effective_until").nullable()
+    val setBy = varchar("set_by", 100)
+    val createdAt = long("created_at")
+    override val primaryKey = PrimaryKey(id)
 }

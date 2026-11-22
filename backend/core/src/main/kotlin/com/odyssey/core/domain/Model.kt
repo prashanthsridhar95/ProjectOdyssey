@@ -28,7 +28,9 @@ data class User(
 
 enum class ProviderStatus { SUBMITTED, UNDER_REVIEW, CHANGES_REQUESTED, APPROVED, LIVE, SUSPENDED, REJECTED }
 
-data class ProviderDocument(val type: String, val reference: String)
+enum class DocState { PENDING, VERIFIED, NEEDS_FIX }
+
+data class ProviderDocument(val type: String, val reference: String, val state: DocState = DocState.PENDING, val note: String? = null)
 data class BankDetails(val accountName: String, val accountNumberMasked: String, val ifsc: String)
 
 data class Provider(
@@ -42,6 +44,7 @@ data class Provider(
     val bank: BankDetails? = null,
     val reviewNote: String? = null,
     val createdAt: Instant,
+    val payoutHold: Boolean = false,
 )
 
 data class Location(
@@ -77,13 +80,21 @@ data class CatalogItem(
     val active: Boolean = true,
     /** Price per variant key, in minor units. */
     val prices: Map<String, Long>,
+    /** How many bays the service occupies. Add-ons that run alongside another service use 0. */
+    val baysUsed: Int = 1,
+    val outOfStock: Boolean = false,
+    /** Set once the back office has looked at an unusual price. */
+    val priceReviewed: Boolean = false,
 )
 
-data class Block(val id: Id, val tenantId: Id, val locationId: Id, val startsAt: Instant, val endsAt: Instant, val reason: String, val createdBy: Id)
+enum class Repeat { NONE, DAILY, WEEKLY }
+
+/** Closed time. [bays] null closes every bay; otherwise just the listed bays. A repeating block recurs at the same local time. */
+data class Block(val id: Id, val tenantId: Id, val locationId: Id, val startsAt: Instant, val endsAt: Instant, val reason: String, val createdBy: Id, val bays: List<Int>? = null, val repeat: Repeat = Repeat.NONE)
 
 enum class OrderSource { APP, WALK_IN }
 
-data class OrderLine(val itemId: Id, val name: String, val priceMinor: Long, val durationMinutes: Int)
+data class OrderLine(val itemId: Id, val name: String, val priceMinor: Long, val durationMinutes: Int, val baysUsed: Int = 1, val category: String = "")
 
 data class Order(
     val id: Id,
@@ -118,6 +129,7 @@ data class Order(
     val promoCode: String? = null,
     val reminded: Boolean = false,
     val reschedules: Int = 0,
+    val bay: Int? = null,
     /** Not stored: true while a payment has been started but the bank has not confirmed yet. */
     val paymentPending: Boolean = false,
 ) {
@@ -132,15 +144,23 @@ data class Payment(val id: Id, val tenantId: Id, val orderId: Id, val amountMino
 
 data class LedgerEntry(val id: Id, val tenantId: Id, val orderId: Id?, val txnId: Id, val type: String, val account: String, val amountMinor: Long, val createdAt: Instant)
 
-data class Payout(val id: Id, val tenantId: Id, val providerId: Id, val amountMinor: Long, val orderCount: Int, val status: String, val createdAt: Instant)
+data class Payout(val id: Id, val tenantId: Id, val providerId: Id, val amountMinor: Long, val orderCount: Int, val status: String, val createdAt: Instant, val reference: String? = null, val failureReason: String? = null, val periodFrom: Instant? = null, val periodTo: Instant? = null)
 
-data class Review(val id: Id, val tenantId: Id, val orderId: Id, val locationId: Id, val customerName: String, val rating: Int, val comment: String, val createdAt: Instant, val tags: List<String> = emptyList())
+data class Review(val id: Id, val tenantId: Id, val orderId: Id, val locationId: Id, val customerName: String, val rating: Int, val comment: String, val createdAt: Instant, val tags: List<String> = emptyList(), val reply: String? = null, val replyAt: Instant? = null)
 
 data class Asset(val id: Id, val tenantId: Id, val ownerUserId: Id, val kind: String, val label: String, val attributes: Map<String, String>)
 
 data class AuditEntry(val id: Id, val tenantId: Id, val actorId: Id?, val actorRole: String, val action: String, val entity: String, val entityId: String?, val detail: String, val at: Instant)
 
 data class Slot(val startsAt: Instant, val endsAt: Instant, val free: Int, val bookable: Boolean)
+
+enum class RuleScope { OUTLET, VENDOR, CATEGORY }
+
+/** A commission rate for an outlet, a vendor or a service category, effective from a date. The most specific active rule wins. */
+data class CommissionRule(
+    val id: Id, val tenantId: Id, val scope: RuleScope, val target: String, val targetLabel: String, val rateBps: Int,
+    val effectiveFrom: Instant, val effectiveUntil: Instant?, val setBy: String, val createdAt: Instant,
+)
 
 enum class PromoKind { PERCENT, FLAT }
 
