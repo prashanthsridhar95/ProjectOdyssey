@@ -5,7 +5,11 @@ import { Login } from './Login'
 import { Dashboard } from './pages/Dashboard'
 import { Vendors, VendorDetail, NewVendor } from './pages/Vendors'
 import { OrdersPage } from './pages/Orders'
-import { Payouts } from './pages/Payouts'
+import { Payments } from './pages/Payments'
+import { Rules } from './pages/Rules'
+import { Support } from './pages/Support'
+import { Customers } from './pages/Customers'
+import { Moderation } from './pages/Moderation'
 import { BillingPage } from './pages/Billing'
 import { SettingsPage } from './pages/Settings'
 import { Audit } from './pages/Audit'
@@ -24,7 +28,11 @@ export function App() {
         { to: '/', label: 'Dashboard', end: true },
         { to: '/vendors', label: `${labels.provider}s` },
         { to: '/orders', label: `${labels.order}s` },
-        { to: '/payouts', label: 'Payouts' },
+        { to: '/payments', label: 'Payments' },
+        { to: '/rules', label: 'Commission rules' },
+        { to: '/customers', label: `${labels.customer}s` },
+        { to: '/moderation', label: 'Menu moderation' },
+        { to: '/support', label: 'Support' },
         { to: '/billing', label: 'Platform billing' },
         { to: '/settings', label: 'Settings' },
         { to: '/audit', label: 'Audit log' },
@@ -36,7 +44,12 @@ export function App() {
         <Route path="/vendors/new" element={<NewVendor />} />
         <Route path="/vendors/:id" element={<VendorDetail />} />
         <Route path="/orders" element={<OrdersPage />} />
-        <Route path="/payouts" element={<Payouts />} />
+        <Route path="/payments" element={<Payments />} />
+        <Route path="/payouts" element={<Navigate to="/payments" replace />} />
+        <Route path="/rules" element={<Rules />} />
+        <Route path="/customers" element={<Customers />} />
+        <Route path="/moderation" element={<Moderation />} />
+        <Route path="/support" element={<Support />} />
         <Route path="/billing" element={<BillingPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/audit" element={<Audit />} />

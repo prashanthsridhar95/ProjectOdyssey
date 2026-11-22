@@ -7,6 +7,6 @@ plugins {
 
 kotlin {
     sourceSets {
-        commonMain.dependencies { api(project(":core:ui")) }
+        commonMain.dependencies { api(project(":core:ui")); api(project(":feature:auth")) }
     }
 }

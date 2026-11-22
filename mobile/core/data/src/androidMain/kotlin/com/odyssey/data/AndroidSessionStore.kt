@@ -14,3 +14,10 @@ class AndroidSessionStore(context: Context, name: String) : SessionStore {
         prefs.edit().apply { if (session == null) remove("session") else putString("session", apiJson.encodeToString(Session.serializer(), session)) }.apply()
     }
 }
+
+/** Small persistent key-value storage for roster and the offline action queue. */
+class AndroidKeyValueStore(context: Context, name: String) : com.odyssey.domain.KeyValueStore {
+    private val prefs = context.getSharedPreferences("odyssey.kv.$name", Context.MODE_PRIVATE)
+    override fun get(key: String): String? = prefs.getString(key, null)
+    override fun put(key: String, value: String?) { prefs.edit().apply { if (value == null) remove(key) else putString(key, value) }.apply() }
+}

@@ -5,6 +5,12 @@ import io.ktor.client.engine.HttpClientEngine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
+class MemoryKeyValueStore : KeyValueStore {
+    private val map = mutableMapOf<String, String>()
+    override fun get(key: String) = map[key]
+    override fun put(key: String, value: String?) { if (value == null) map.remove(key) else map[key] = value }
+}
+
 /** In-memory session store; apps pass a persistent one (SharedPreferences, Keychain). */
 class MemorySessionStore : SessionStore {
     private var session: Session? = null
@@ -21,6 +27,7 @@ class AppContainer(
     tenant: String,
     private val store: SessionStore = MemorySessionStore(),
     engine: HttpClientEngine = defaultEngine(),
+    val kv: KeyValueStore = MemoryKeyValueStore(),
 ) {
     private val _session = MutableStateFlow(store.load())
     val session: StateFlow<Session?> = _session
@@ -41,8 +48,19 @@ class AppContainer(
     val buildCheckout = BuildCheckout()
     val placeAndPay = PlaceAndPayOrder(customer)
     val bookings = ManageBookings(orders, customer)
-    val providerDay = RunProviderDay(provider, orders)
+    val actionQueue = ActionQueue(kv)
+    val providerDay = RunProviderDay(provider, orders, actionQueue)
+
+    /** People who can unlock the counter device, remembered from the last owner sign-in. */
+    private val rosterJson = kotlinx.serialization.builtins.ListSerializer(RosterEntry.serializer())
+    fun roster(): List<RosterEntry> = kv.get("roster")?.let { runCatching { apiJson.decodeFromString(rosterJson, it) }.getOrNull() } ?: emptyList()
+    fun saveRoster(list: List<RosterEntry>) = kv.put("roster", apiJson.encodeToString(rosterJson, list))
+    fun lockoutName(): String? = kv.get("outlet")
+    fun saveOutlet(name: String) = kv.put("outlet", name)
     val adminOps = RunAdmin(admin, orders)
+
+    /** True while the counter device shows the lock screen. The vendor app locks on a cold start and after time in the background. */
+    val locked = MutableStateFlow(true)
 
     private fun signedOut() { store.save(null); _session.value = null }
     fun logout() = auth.logout()

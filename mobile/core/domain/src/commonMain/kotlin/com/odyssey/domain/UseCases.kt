@@ -80,9 +80,44 @@ fun groupSlots(slots: List<Slot>): Map<DayPart, List<Slot>> {
     return slots.groupBy(::part).toSortedMap(compareBy { it.ordinal })
 }
 
-class RunProviderDay(private val repo: ProviderRepository, private val orders: OrderRepository) {
+@kotlinx.serialization.Serializable
+data class PendingAction(val orderId: String, val action: String, val note: String? = null)
+
+/**
+ * Counter actions taken without a connection wait here and are sent when the network returns, in order.
+ * The queue survives the app being closed, so a busy counter never loses a check-in.
+ */
+class ActionQueue(private val kv: KeyValueStore, private val key: String = "pending-actions") {
+    private val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+    private val serializer = kotlinx.serialization.builtins.ListSerializer(PendingAction.serializer())
+
+    fun pending(): List<PendingAction> = kv.get(key)?.let { runCatching { json.decodeFromString(serializer, it) }.getOrNull() } ?: emptyList()
+    fun enqueue(a: PendingAction) { kv.put(key, json.encodeToString(serializer, pending() + a)) }
+    private fun save(list: List<PendingAction>) = kv.put(key, if (list.isEmpty()) null else json.encodeToString(serializer, list))
+
+    /** Sends queued actions in order. Stops at the first network failure; drops an action the server refuses for good. */
+    suspend fun flush(send: suspend (PendingAction) -> Unit): Int {
+        var sent = 0
+        var left = pending()
+        while (left.isNotEmpty()) {
+            try { send(left.first()); sent++; left = left.drop(1) }
+            catch (e: ApiException) { if (e.code == "network") break; left = left.drop(1) }
+            save(left)
+        }
+        save(left)
+        return sent
+    }
+}
+
+class RunProviderDay(private val repo: ProviderRepository, private val orders: OrderRepository, private val queue: ActionQueue) {
     suspend fun bookings(date: String, locationId: String?) = repo.orders(date, locationId)
-    suspend fun act(orderId: String, action: String, note: String?) = orders.act(orderId, action, note)
+
+    /** Runs the action now, or queues it when offline. Returns null when queued. */
+    suspend fun act(orderId: String, action: String, note: String?): Order? =
+        try { orders.act(orderId, action, note) } catch (e: ApiException) { if (e.code == "network") { queue.enqueue(PendingAction(orderId, action, note)); null } else throw e }
+
+    fun queued(): Int = queue.pending().size
+    suspend fun flush(): Int = queue.flush { orders.act(it.orderId, it.action, it.note) }
 }
 
 class RunAdmin(private val repo: AdminRepository, private val orders: OrderRepository) {

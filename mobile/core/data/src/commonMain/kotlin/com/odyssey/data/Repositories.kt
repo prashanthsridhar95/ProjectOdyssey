@@ -16,9 +16,11 @@ import kotlinx.serialization.json.JsonElement
 @Serializable internal data class QuoteBody(val locationId: String, val itemIds: List<String>, val variantKey: String, val promoCode: String? = null)
 @Serializable internal data class RescheduleBody(val startsAt: String)
 @Serializable internal data class ReportBody(val category: String, val description: String, val photos: List<String>)
-@Serializable internal data class BlockBody(val startsAt: String, val endsAt: String, val reason: String)
-@Serializable internal data class WalkInBody(val locationId: String, val itemIds: List<String>, val variantKey: String, val startsAt: String, val customerName: String)
-@Serializable internal data class ItemBody(val name: String, val description: String, val category: String, val durationMinutes: Int, val active: Boolean, val prices: Map<String, Long>)
+@Serializable internal data class BlockBody(val startsAt: String, val endsAt: String, val reason: String, val bays: List<Int>? = null, val repeat: String = "NONE")
+@Serializable internal data class WalkInBody(val locationId: String, val itemIds: List<String>, val variantKey: String, val startsAt: String? = null, val customerName: String, val plate: String? = null, val bay: Int? = null)
+@Serializable internal data class CheckInBody(val code: String)
+@Serializable internal data class LocationPatch(val autoAccept: Boolean)
+@Serializable internal data class ItemBody(val name: String, val description: String, val category: String, val durationMinutes: Int, val active: Boolean, val prices: Map<String, Long>, val baysUsed: Int = 1, val outOfStock: Boolean = false)
 @Serializable internal data class CommissionBody(val bps: Int?)
 
 class AuthRepositoryImpl(private val api: ApiClient, private val store: SessionStore, private val onChange: (Session?) -> Unit) : AuthRepository {
@@ -71,19 +73,24 @@ class OrderRepositoryImpl(private val api: ApiClient) : OrderRepository {
 class ProviderRepositoryImpl(private val api: ApiClient) : ProviderRepository {
     override suspend fun me(): Provider = api.get("/provider/me")
     override suspend fun orders(date: String, locationId: String?): List<Order> = api.get("/provider/orders", mapOf("date" to date, "locationId" to locationId))
+    override suspend fun calendar(locationId: String, date: String): Calendar = api.get("/provider/locations/$locationId/calendar", mapOf("from" to date, "days" to 1))
     override suspend fun slots(locationId: String, date: String): List<Slot> = api.get("/locations/$locationId/availability", mapOf("date" to date))
-    override suspend fun blocks(locationId: String, date: String): List<Block> = api.get("/provider/locations/$locationId/blocks", mapOf("date" to date))
-    override suspend fun addBlock(locationId: String, startsAt: String, endsAt: String, reason: String): Block =
-        api.post("/provider/locations/$locationId/blocks", BlockBody(startsAt, endsAt, reason))
+    override suspend fun addBlock(locationId: String, startsAt: String, endsAt: String, reason: String, bays: List<Int>?, repeat: String): Block =
+        api.post("/provider/locations/$locationId/blocks", BlockBody(startsAt, endsAt, reason, bays, repeat))
     override suspend fun removeBlock(locationId: String, blockId: String) = api.delete("/provider/locations/$locationId/blocks/$blockId")
     override suspend fun items(locationId: String): List<Item> = api.get("/provider/locations/$locationId/items")
     override suspend fun saveItem(locationId: String, item: Item, pin: String?): Item {
-        val body = ItemBody(item.name, item.description, item.category, item.durationMinutes, item.active, item.prices)
+        val body = ItemBody(item.name, item.description, item.category, item.durationMinutes, item.active, item.prices, item.baysUsed, item.outOfStock)
         return if (item.id.isEmpty()) api.post("/provider/locations/$locationId/items", body, pin) else api.put("/provider/locations/$locationId/items/${item.id}", body, pin)
     }
-    override suspend fun walkIn(locationId: String, itemId: String, variantKey: String, startsAt: String, customerName: String): Order =
-        api.post("/provider/walk-ins", WalkInBody(locationId, listOf(itemId), variantKey, startsAt, customerName))
-    override suspend fun earnings(pin: String): Earnings = api.get("/provider/earnings", pin = pin)
+    override suspend fun walkIn(locationId: String, itemIds: List<String>, variantKey: String, startsAt: String?, customerName: String, plate: String?, bay: Int?): Order =
+        api.post("/provider/walk-ins", WalkInBody(locationId, itemIds, variantKey, startsAt, customerName, plate, bay))
+    override suspend fun checkIn(code: String): Order = api.post("/provider/check-in", CheckInBody(code))
+    override suspend fun earnings(range: String, pin: String): EarningsReport = api.get("/provider/earnings", mapOf("range" to range), pin = pin)
+    override suspend fun statement(range: String, pin: String): String = api.getText("/provider/statement", mapOf("range" to range), pin = pin)
+    override suspend fun payouts(pin: String): List<PayoutRow> = api.get("/provider/payouts", pin = pin)
+    override suspend fun staff(): List<User> = api.get("/provider/staff")
+    override suspend fun setAutoAccept(locationId: String, on: Boolean) { api.put<LocationPatch, JsonElement>("/provider/locations/$locationId", LocationPatch(on)) }
 }
 
 class AdminRepositoryImpl(private val api: ApiClient) : AdminRepository {

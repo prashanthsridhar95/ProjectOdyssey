@@ -1,6 +1,6 @@
 import type {
-  ApiErrorBody, AuditEntry, AuthResponse, Billing, Block, Customer, Dashboard, Earnings, Item, Location, LocationDraft,
-  Order, Payout, Provider, PublicConfig, Slot, StaffMember, TenantConfig, User,
+  ApiErrorBody, AuditEntry, BulkEdit, Closure, LedgerRow, Outlier, PaymentRow, Promo, Review, Rule, RulePreview, Ticket, AuthResponse, Batch, Billing, Block, Customer, Dashboard, Earnings, Item, Location, LocationDraft,
+  Order, Overview, Payout, Provider, PublicConfig, Slot, StaffMember, TenantConfig, User,
 } from './types'
 
 export class ApiError extends Error {
@@ -81,21 +81,56 @@ export function createApi(opts: ClientOptions) {
       staff: () => get<StaffMember[]>('/provider/staff'),
       addStaff: (s: { name: string; phone: string; role: string; pin: string }, pin: string) => post<StaffMember>('/provider/staff', s, { pin }),
       removeStaff: (id: string, pin: string) => del<void>(`/provider/staff/${id}`, { pin }),
-      earnings: (pin: string) => get<Earnings>('/provider/earnings', { pin }),
+      earnings: (pin: string, range?: string) => get<Earnings>('/provider/earnings', { pin, query: { range } }),
+      reviews: () => get<Review[]>('/provider/reviews'),
+      reply: (id: string, text: string) => post<Review>(`/provider/reviews/${id}/reply`, { text }),
+      closures: (locationId: string) => get<Closure[]>(`/provider/locations/${locationId}/closures`),
+      addClosure: (locationId: string, b: { startsAt: string; endsAt: string; reason: string; bays?: number[]; repeat: string }) => post<Closure>(`/provider/locations/${locationId}/blocks`, b),
+      bulkMenu: (locationIds: string[], edits: BulkEdit[], pin: string) => put<{ changed: number }>('/provider/menu/bulk', { locationIds, edits }, { pin }),
+      statement: async (pin: string, range: string) => {
+        const res = await fetch(`${opts.baseUrl.replace(/\/$/, '')}/v1/provider/statement?range=${range}`, { headers: { 'X-Tenant': opts.tenant ?? 'carwash', Authorization: `Bearer ${opts.getToken()}`, 'X-Owner-Pin': pin } })
+        if (!res.ok) throw new ApiError(res.status, 'error', 'Could not download the statement')
+        return res.text()
+      },
+      overview: (range = 'week', locationId?: string) => get<Overview>('/provider/overview', { query: { range, locationId } }),
       payouts: (pin: string) => get<Payout[]>('/provider/payouts', { pin }),
       setOwnerPin: (newPin: string, currentPin?: string) => put<void>('/provider/owner-pin', { newPin, currentPin }),
       verifyPin: (pin: string) => post<void>('/provider/verify-pin', {}, { pin }),
       saveBank: (b: { accountName: string; accountNumber: string; ifsc: string }, pin: string) => put<Provider>('/provider/bank', b, { pin }),
     },
     admin: {
-      dashboard: () => get<Dashboard>('/admin/dashboard'),
+      dashboard: (range = '7d') => get<Dashboard>('/admin/dashboard', { query: { range } }),
+      batch: () => get<Batch>('/admin/payments/batch'),
+      collections: () => get<PaymentRow[]>('/admin/payments/collections'),
+      refunds: () => get<PaymentRow[]>('/admin/payments/refunds'),
+      ledger: () => get<LedgerRow[]>('/admin/payments/ledger'),
+      setHold: (id: string, hold: boolean) => put<Provider>(`/admin/providers/${id}/hold`, { hold }),
+      reviewDoc: (id: string, type: string, state: string, note?: string) => post<Provider>(`/admin/providers/${id}/documents/${type}`, { state, note }),
+      setCustomerActive: (id: string, active: boolean) => put<void>(`/admin/customers/${id}/active`, { active }),
+      outliers: () => get<Outlier[]>('/admin/moderation/menu'),
+      reviewOutlier: (itemId: string, hide: boolean) => post<void>(`/admin/moderation/menu/${itemId}`, { hide }),
+      rules: () => get<Rule[]>('/admin/commission-rules'),
+      addRule: (r: { scope: string; target: string; rateBps: number; effectiveFrom: string; effectiveUntil?: string }) => post<Rule>('/admin/commission-rules', r),
+      deleteRule: (id: string) => del<void>(`/admin/commission-rules/${id}`),
+      preview: (serviceMinor: number, rateBps: number) => get<RulePreview>('/admin/commission-preview', { query: { serviceMinor, rateBps } }),
+      tickets: (status?: string) => get<Ticket[]>('/admin/tickets', { query: { status } }),
+      resolveTicket: (id: string, b: { uphold: boolean; refundMinor: number; note: string }) => post<Ticket>(`/admin/tickets/${id}/resolve`, b),
+      promos: () => get<Promo[]>('/admin/promos'),
+      savePromo: (p: Promo) => post<Promo>('/admin/promos', p),
+      setPromoActive: (code: string, active: boolean) => put<void>(`/admin/promos/${code}/active`, { active }),
+      exportLedgerUrl: () => `${opts.baseUrl.replace(/\/$/, '')}/v1/admin/payments/export`,
+      ledgerCsv: async () => {
+        const res = await fetch(`${opts.baseUrl.replace(/\/$/, '')}/v1/admin/payments/export`, { headers: { 'X-Tenant': opts.tenant ?? 'carwash', Authorization: `Bearer ${opts.getToken()}` } })
+        return res.text()
+      },
+      retryPayout: (id: string) => post<Payout>(`/admin/payouts/${id}/retry`),
       providers: (status?: string) => get<Provider[]>('/admin/providers', { query: { status } }),
       provider: (id: string) => get<Provider>(`/admin/providers/${id}`),
       createProvider: (b: { name: string; ownerName: string; ownerPhone: string; location: LocationDraft }) => post<Provider>('/admin/providers', b),
       providerAction: (id: string, action: string, note?: string) => post<Provider>(`/admin/providers/${id}/actions`, { action, note }),
       setCommission: (id: string, bps: number | null) => put<Provider>(`/admin/providers/${id}/commission`, { bps }),
       orders: (status?: string) => get<Order[]>('/admin/orders', { query: { status, limit: 200 } }),
-      customers: () => get<Customer[]>('/admin/customers'),
+      customers: (q?: string) => get<Customer[]>('/admin/customers', { query: { q } }),
       payouts: () => get<Payout[]>('/admin/payouts'),
       runPayouts: () => post<Payout[]>('/admin/payouts/run'),
       billing: (month?: string) => get<Billing>('/admin/billing', { query: { month } }),

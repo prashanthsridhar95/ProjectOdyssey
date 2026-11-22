@@ -19,20 +19,27 @@ export function EarningsPage() {
       if (r) setData(r)
     } catch (e) { setError(messageOf(e)) }
   }
+  async function download() {
+    try {
+      const csv = await withPin((pin) => api.provider.statement(pin, 'month'), 'Owner PIN to download statement')
+      if (csv) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = 'statement.csv'; a.click() }
+    } catch (e) { setError(messageOf(e)) }
+  }
   useEffect(() => { void unlock() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!data) return <><PageHeader title="Earnings" /><ErrorNote message={error} />{!error && <Spinner />}<button className="btn" onClick={unlock}>Enter PIN</button></>
   const { e, p } = data
   return (
     <>
-      <PageHeader title="Earnings" subtitle="Completed bookings, after the platform's commission" />
+      <PageHeader title="Earnings" subtitle="Completed bookings, after the platform's commission" actions={<button className="btn" onClick={download}>Download statement (CSV)</button>} />
       <div className="grid cols-4">
         <Stat label="Completed bookings" value={e.orders} />
-        <Stat label="Service value" value={money(e.grossMinor)} />
-        <Stat label="Commission" value={money(e.commissionMinor)} />
-        <Stat label="Your earnings" value={money(e.earnedMinor)} />
+        <Stat label="Service value" value={money(e.serviceMinor)} />
+        <Stat label={`Commission (${(e.commissionBps / 100).toFixed(1)}%)`} value={money(e.commissionMinor)} />
+        <Stat label="Payment fees" value={money(e.gatewayFeeMinor)} />
+        <Stat label="Your net earnings" value={money(e.netMinor)} />
         <Stat label="Paid out" value={money(e.paidOutMinor)} />
-        <Stat label="Waiting for payout" value={money(e.pendingMinor)} hint="Paid out on the next run" />
+        <Stat label="Waiting for payout" value={money(e.pendingMinor)} hint={`Next payout ${e.nextPayoutDate}${e.bankMasked ? ' to ' + e.bankMasked : ''}`} />
       </div>
       <div style={{ height: 20 }} />
       <Card flush>

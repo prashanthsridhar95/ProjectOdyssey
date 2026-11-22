@@ -79,3 +79,34 @@ class SlotGroupingTest {
         assertEquals(listOf(DayPart.MORNING, DayPart.AFTERNOON, DayPart.EVENING), grouped.keys.toList())
     }
 }
+
+class ActionQueueTest {
+    private class Mem : KeyValueStore { val m = mutableMapOf<String, String>(); override fun get(key: String) = m[key]; override fun put(key: String, value: String?) { if (value == null) m.remove(key) else m[key] = value } }
+
+    @Test fun queuedActionsSurviveAndSendInOrder() = kotlinx.coroutines.test.runTest {
+        val kv = Mem()
+        val q = ActionQueue(kv)
+        q.enqueue(PendingAction("a", "CHECK_IN")); q.enqueue(PendingAction("a", "START"))
+        val reopened = ActionQueue(kv)   // a new instance reads what the old one saved
+        val sent = mutableListOf<String>()
+        assertEquals(2, reopened.flush { sent += it.action })
+        assertEquals(listOf("CHECK_IN", "START"), sent)
+        assertTrue(reopened.pending().isEmpty())
+    }
+
+    @Test fun stopsAtANetworkFailureAndKeepsTheRest() = kotlinx.coroutines.test.runTest {
+        val q = ActionQueue(Mem())
+        q.enqueue(PendingAction("a", "CHECK_IN")); q.enqueue(PendingAction("b", "START"))
+        assertEquals(0, q.flush { throw ApiException("network", "offline") })
+        assertEquals(2, q.pending().size)
+    }
+
+    @Test fun dropsAnActionTheServerRefusesForGood() = kotlinx.coroutines.test.runTest {
+        val q = ActionQueue(Mem())
+        q.enqueue(PendingAction("a", "COMPLETE")); q.enqueue(PendingAction("b", "START"))
+        val sent = mutableListOf<String>()
+        q.flush { if (it.orderId == "a") throw ApiException("invalid_transition", "no", 409) else sent += it.orderId }
+        assertEquals(listOf("b"), sent)
+        assertTrue(q.pending().isEmpty())
+    }
+}

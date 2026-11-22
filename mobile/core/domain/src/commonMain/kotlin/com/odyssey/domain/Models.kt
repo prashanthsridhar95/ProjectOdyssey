@@ -58,7 +58,7 @@ data class LocationSummary(
 )
 
 @Serializable
-data class Item(val id: String, val name: String, val description: String = "", val category: String = "", val durationMinutes: Int, val active: Boolean = true, val prices: Map<String, Long> = emptyMap())
+data class Item(val id: String, val name: String, val description: String = "", val category: String = "", val durationMinutes: Int, val active: Boolean = true, val prices: Map<String, Long> = emptyMap(), val baysUsed: Int = 1, val outOfStock: Boolean = false)
 
 @Serializable data class Review(val id: String, val customerName: String, val rating: Int, val comment: String = "", val createdAt: String, val tags: List<String> = emptyList())
 @Serializable data class LocationDetail(val location: LocationSummary, val items: List<Item> = emptyList(), val reviews: List<Review> = emptyList())
@@ -75,10 +75,11 @@ data class Order(
     val commissionBps: Int? = null, val commissionMinor: Long? = null, val holdExpiresAt: String? = null,
     val cancellationReason: String? = null, val createdAt: String = "", val actions: List<String> = emptyList(), val reviewed: Boolean = false,
     val discountMinor: Long = 0, val promoCode: String? = null, val paymentPending: Boolean = false, val reschedules: Int = 0,
+    val bay: Int? = null, val acceptBy: String? = null,
     val locationPhone: String? = null, val locationAddress: String? = null, val locationLat: Double? = null, val locationLng: Double? = null,
 )
 
-@Serializable data class OrderEvent(val from: String? = null, val to: String, val action: String, val note: String? = null, val at: String)
+@Serializable data class OrderEvent(val from: String? = null, val to: String, val action: String, val note: String? = null, val at: String, val by: String? = null)
 @Serializable data class OrderDetail(val order: Order, val events: List<OrderEvent> = emptyList())
 
 @Serializable data class Asset(val id: String, val kind: String, val label: String, val attributes: Map<String, String> = emptyMap())
@@ -103,23 +104,36 @@ data class ProviderLocation(
     val slotMinutes: Int, val capacity: Int, val autoAccept: Boolean, val open: Boolean, val amenities: List<String> = emptyList(), val ratingAvg: Double = 0.0, val ratingCount: Int = 0,
 )
 
-@Serializable data class DocumentRef(val type: String, val reference: String)
+@Serializable data class DocumentRef(val type: String, val reference: String, val state: String = "PENDING", val note: String? = null)
 @Serializable data class BankInfo(val accountName: String, val accountNumberMasked: String, val ifsc: String)
 
 @Serializable
 data class Provider(
     val id: String, val name: String, val status: String, val commissionBps: Int? = null, val reviewNote: String? = null,
     val documents: List<DocumentRef> = emptyList(), val bank: BankInfo? = null, val ownerName: String? = null, val ownerPhone: String? = null,
-    val locations: List<ProviderLocation> = emptyList(), val createdAt: String = "",
+    val locations: List<ProviderLocation> = emptyList(), val createdAt: String = "", val payoutHold: Boolean = false, val staffCount: Int = 0,
 )
 
-@Serializable data class Block(val id: String, val startsAt: String, val endsAt: String, val reason: String = "")
-@Serializable data class Earnings(val orders: Long = 0, val grossMinor: Long = 0, val commissionMinor: Long = 0, val earnedMinor: Long = 0, val paidOutMinor: Long = 0, val pendingMinor: Long = 0)
+@Serializable data class Block(val id: String, val startsAt: String, val endsAt: String, val reason: String = "", val bays: List<Int>? = null, val repeat: String = "NONE")
+@Serializable data class Window(val startsAt: String, val endsAt: String, val bays: List<Int>? = null, val reason: String = "", val repeat: String = "NONE")
+@Serializable data class Calendar(val capacity: Int, val slotMinutes: Int, val openTime: String, val closeTime: String, val orders: List<Order> = emptyList(), val windows: List<Window> = emptyList())
+@Serializable
+data class EarningsReport(
+    val from: String = "", val to: String = "", val orders: Int = 0, val serviceMinor: Long = 0, val commissionMinor: Long = 0, val commissionBps: Int = 0, val gatewayFeeMinor: Long = 0,
+    val netMinor: Long = 0, val pendingMinor: Long = 0, val paidOutMinor: Long = 0, val nextPayoutDate: String = "", val bankMasked: String? = null,
+)
+@Serializable data class PayoutRow(val id: String, val amountMinor: Long, val orderCount: Int, val status: String, val createdAt: String, val reference: String? = null)
+@Serializable data class RosterEntry(val id: String, val name: String, val phone: String, val role: Role)
+
+@Serializable data class DayPoint(val date: String, val gmvMinor: Long)
+@Serializable data class AlertItem(val kind: String, val title: String, val meta: String)
+@Serializable data class VendorRow(val providerId: String, val name: String, val bookings: Int, val gmvMinor: Long, val utilisationPct: Int, val ratingAvg: Double, val cancelPct: Double, val noShowPct: Double)
 
 @Serializable
 data class Dashboard(
-    val ordersTotal: Int = 0, val ordersToday: Int = 0, val gmvMinor: Long = 0, val commissionMinor: Long = 0,
-    val cancelled: Int = 0, val completed: Int = 0, val providersByStatus: Map<String, Int> = emptyMap(), val customers: Int = 0,
+    val range: String = "", val gmvMinor: Long = 0, val gmvDeltaPct: Int? = null, val bookings: Int = 0, val bookingsPerDay: Int = 0, val takeRateBps: Int = 0, val utilisationPct: Int = 0,
+    val cancellationPct: Double = 0.0, val noShowPct: Double = 0.0, val vendorsLive: Int = 0, val vendorsInReview: Int = 0,
+    val series: List<DayPoint> = emptyList(), val alerts: List<AlertItem> = emptyList(), val topVendors: List<VendorRow> = emptyList(), val customers: Int = 0,
 )
 
 /** Every failure the apps show to a person. The server's error code and message come through unchanged. */

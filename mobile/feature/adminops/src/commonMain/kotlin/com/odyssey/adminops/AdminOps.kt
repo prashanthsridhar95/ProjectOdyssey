@@ -70,11 +70,14 @@ private fun DashboardTab() {
     Column(Modifier.padding(horizontal = 16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Remote(s, vm::reload) { d ->
             SurfaceCard {
-                Labeled("Bookings today", d.ordersToday.toString()); Labeled("Bookings in total", d.ordersTotal.toString())
-                Labeled("Gross value (GMV)", formatMoney(d.gmvMinor)); Labeled("Commission earned", formatMoney(d.commissionMinor))
-                Labeled("Completed", d.completed.toString()); Labeled("Cancelled or rejected", d.cancelled.toString()); Labeled("Customers", d.customers.toString())
+                Labeled("Gross value (GMV)", formatMoney(d.gmvMinor) + (d.gmvDeltaPct?.let { "  (${if (it >= 0) "+" else ""}$it%)" } ?: ""))
+                Labeled("Bookings", d.bookings.toString()); Labeled("Per day", d.bookingsPerDay.toString())
+                Labeled("Take rate", "${d.takeRateBps / 100.0}%"); Labeled("Utilisation", "${d.utilisationPct}%")
+                Labeled("Cancellations", "${d.cancellationPct}%"); Labeled("No-shows", "${d.noShowPct}%")
+                Labeled("Vendors live", d.vendorsLive.toString()); Labeled("Vendors in review", d.vendorsInReview.toString()); Labeled("Customers", d.customers.toString())
             }
-            Section("Vendors by status") { d.providersByStatus.forEach { (k, v) -> SurfaceCard { Labeled(k.titleCase(), v.toString()) } } }
+            if (d.alerts.isNotEmpty()) Section("Needs attention") { d.alerts.forEach { a -> SurfaceCard { Labeled(a.title, a.meta) } } }
+            if (d.topVendors.isNotEmpty()) Section("Top vendors") { d.topVendors.forEach { v -> SurfaceCard { Labeled(v.name, "${v.bookings} bookings · ${formatMoney(v.gmvMinor)}") } } }
         }
     }
 }

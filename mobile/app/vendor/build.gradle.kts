@@ -18,5 +18,7 @@ android {
 dependencies {
     implementation(project(":feature:auth"))
     implementation(project(":feature:vendorops"))
+    implementation(project(":vertical:carwash"))
     implementation(libs.activity.compose)
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")   // camera scanning for the booking QR
 }

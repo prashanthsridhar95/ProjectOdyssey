@@ -43,13 +43,13 @@ sealed interface Route {
 
 class MainActivity : ComponentActivity() {
     private val container by lazy { AppContainer(BuildConfig.API_URL, BuildConfig.TENANT, AndroidSessionStore(this, "customer")) }
-    private lateinit var platform: AndroidPlatform
+    private lateinit var platform: com.odyssey.ui.AndroidPlatform
     private val photo = registerForActivityResult(ActivityResultContracts.GetContent()) { uri -> platform.photoCallback?.invoke(platform.encode(uri)); platform.photoCallback = null }
     private val permissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {}
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        platform = AndroidPlatform(this) { photo.launch("image/*") }
+        platform = com.odyssey.ui.AndroidPlatform(this, launchPicker = { photo.launch("image/*") })
         permissions.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.POST_NOTIFICATIONS))
         setContent {
             IndustryTheme {

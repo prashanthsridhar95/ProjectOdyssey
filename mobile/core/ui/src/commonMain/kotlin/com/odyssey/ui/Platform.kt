@@ -21,6 +21,11 @@ interface PlatformActions {
     fun notify(title: String, body: String)
     /** Opens the photo picker and returns a small JPEG as a data URI, or null if cancelled. */
     fun pickPhoto(onResult: (String?) -> Unit)
+    /** Opens the camera to scan a QR code and returns its text, or null if cancelled. */
+    fun scanCode(onResult: (String?) -> Unit)
+    /** A repeating alert sound for a new booking that needs accepting. */
+    fun alertSound(on: Boolean)
+    fun shareText(title: String, text: String)
 }
 
 object NoPlatform : PlatformActions {
@@ -29,6 +34,9 @@ object NoPlatform : PlatformActions {
     override fun addToCalendar(title: String, startEpochMs: Long, endEpochMs: Long, location: String) = Unit
     override fun notify(title: String, body: String) = Unit
     override fun pickPhoto(onResult: (String?) -> Unit) = onResult(null)
+    override fun scanCode(onResult: (String?) -> Unit) = onResult(null)
+    override fun alertSound(on: Boolean) = Unit
+    override fun shareText(title: String, text: String) = Unit
 }
 
 val LocalPlatform = staticCompositionLocalOf<PlatformActions> { NoPlatform }

@@ -60,14 +60,25 @@ interface OrderRepository {
 interface ProviderRepository {
     suspend fun me(): Provider
     suspend fun orders(date: String, locationId: String?): List<Order>
+    suspend fun calendar(locationId: String, date: String): Calendar
     suspend fun slots(locationId: String, date: String): List<Slot>
-    suspend fun blocks(locationId: String, date: String): List<Block>
-    suspend fun addBlock(locationId: String, startsAt: String, endsAt: String, reason: String): Block
+    suspend fun addBlock(locationId: String, startsAt: String, endsAt: String, reason: String, bays: List<Int>?, repeat: String): Block
     suspend fun removeBlock(locationId: String, blockId: String)
     suspend fun items(locationId: String): List<Item>
     suspend fun saveItem(locationId: String, item: Item, pin: String?): Item
-    suspend fun walkIn(locationId: String, itemId: String, variantKey: String, startsAt: String, customerName: String): Order
-    suspend fun earnings(pin: String): Earnings
+    suspend fun walkIn(locationId: String, itemIds: List<String>, variantKey: String, startsAt: String?, customerName: String, plate: String?, bay: Int?): Order
+    suspend fun checkIn(code: String): Order
+    suspend fun earnings(range: String, pin: String): EarningsReport
+    suspend fun statement(range: String, pin: String): String
+    suspend fun payouts(pin: String): List<PayoutRow>
+    suspend fun staff(): List<User>
+    suspend fun setAutoAccept(locationId: String, on: Boolean)
+}
+
+/** Small persistent key-value storage the apps provide (SharedPreferences, UserDefaults). */
+interface KeyValueStore {
+    fun get(key: String): String?
+    fun put(key: String, value: String?)
 }
 
 interface AdminRepository {

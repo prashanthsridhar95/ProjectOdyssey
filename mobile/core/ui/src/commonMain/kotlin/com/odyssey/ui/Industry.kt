@@ -157,7 +157,7 @@ fun Choice(text: String, selected: Boolean, modifier: Modifier = Modifier, enabl
 fun Seg(options: List<String>, selected: Int, modifier: Modifier = Modifier, onSelect: (Int) -> Unit) {
     Row(modifier.hairline()) {
         options.forEachIndexed { i, label ->
-            Box(Modifier.weight(1f).background(if (i == selected) Ind.accent else Color.Transparent).clickable { onSelect(i) }.padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.weight(1f).background(if (i == selected) Ind.accent else Color.Transparent).clickable { onSelect(i) }.padding(horizontal = 6.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
                 Body(label, size = 13, color = if (i == selected) Ind.bg else Ind.text, weight = if (i == selected) FontWeight.Medium else FontWeight.Normal)
             }
             if (i < options.lastIndex) Box(Modifier.width(1.dp).height(36.dp).background(Ind.divider))

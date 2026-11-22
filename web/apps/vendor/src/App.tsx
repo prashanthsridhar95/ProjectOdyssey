@@ -2,9 +2,13 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { useAsync, useSession } from '@odyssey/api'
 import { AppShell, Badge, Card, Spinner } from '@odyssey/ui'
 import { Login } from './Login'
+import { OverviewPage } from './pages/Overview'
 import { BookingsPage } from './pages/Bookings'
 import { CalendarPage } from './pages/Calendar'
 import { MenuPage } from './pages/Menu'
+import { ReviewsPage } from './pages/Reviews'
+import { ClosuresPage } from './pages/Closures'
+import { BulkMenuPage } from './pages/BulkMenu'
 import { EarningsPage } from './pages/Earnings'
 import { StaffPage } from './pages/Staff'
 import { SettingsPage } from './pages/Settings'
@@ -18,9 +22,13 @@ export function App() {
   const manager = owner || user.role === 'PROVIDER_MANAGER'
   const live = me.data.status === 'LIVE'
   const nav = [
-    { to: '/', label: 'Bookings', end: true },
+    { to: '/', label: 'Overview', end: true },
+    { to: '/bookings', label: 'Bookings' },
     { to: '/calendar', label: 'Slots' },
+    { to: '/closures', label: 'Closures' },
     ...(manager ? [{ to: '/menu', label: 'Menu' }] : []),
+    ...(owner ? [{ to: '/bulk', label: 'Bulk edit' }] : []),
+    { to: '/reviews', label: 'Reviews' },
     ...(owner ? [{ to: '/earnings', label: 'Earnings' }, { to: '/staff', label: 'Staff' }] : []),
     ...(manager ? [{ to: '/settings', label: 'Settings' }] : []),
   ]
@@ -34,8 +42,12 @@ export function App() {
       )}
       <div style={{ height: live ? 0 : 16 }} />
       <Routes>
-        <Route path="/" element={<BookingsPage provider={me.data} />} />
+        <Route path="/" element={<OverviewPage />} />
+        <Route path="/bookings" element={<BookingsPage provider={me.data} />} />
         <Route path="/calendar" element={<CalendarPage provider={me.data} />} />
+        <Route path="/closures" element={<ClosuresPage provider={me.data} />} />
+        <Route path="/reviews" element={<ReviewsPage />} />
+        {owner && <Route path="/bulk" element={<BulkMenuPage provider={me.data} />} />}
         {manager && <Route path="/menu" element={<MenuPage provider={me.data} />} />}
         {owner && <Route path="/earnings" element={<EarningsPage />} />}
         {owner && <Route path="/staff" element={<StaffPage />} />}

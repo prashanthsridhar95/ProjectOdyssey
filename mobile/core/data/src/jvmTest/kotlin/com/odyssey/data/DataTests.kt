@@ -46,7 +46,7 @@ class ApiClientTest {
     @Test fun `owner PIN and idempotency key travel as headers`() = runTest {
         var seen: io.ktor.client.request.HttpRequestData? = null
         val c = container({ req -> seen = req; respond("""{"orders":1}""", HttpStatusCode.OK, json) })
-        c.provider.earnings("123456")
+        c.provider.earnings("week", "123456")
         assertEquals("123456", seen!!.headers["X-Owner-Pin"])
         container({ req -> seen = req; respond("""{"id":"o","code":"X","status":"PENDING_PAYMENT","statusLabel":"s","providerId":"p","locationId":"l","locationName":"L","variantKey":"SEDAN","startsAt":"a","endsAt":"b","subtotalMinor":1,"totalMinor":1}""", HttpStatusCode.Created, json) })
             .customer.placeOrder(PlaceOrderInput("l", listOf("i"), "SEDAN", "t", null), "idem-1")

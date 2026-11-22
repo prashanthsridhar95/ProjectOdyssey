@@ -21,6 +21,8 @@ export function SettingsPage() {
   return (
     <>
       <PageHeader title="Settings" subtitle="Rules that apply to every new booking" actions={<Button variant="primary" onClick={save}>Save changes</Button>} />
+      <ServiceAreas cfg={cfg} setCfg={setCfg} />
+      <div style={{ height: 16 }} />
       <div className="grid cols-2">
         <Card>
           <h2>Money</h2>
@@ -57,5 +59,31 @@ export function SettingsPage() {
         </Card>
       </div>
     </>
+  )
+}
+
+interface Area { name: string; lat: number; lng: number; radiusKm: number }
+
+/** Cities and areas the marketplace serves. The customer app offers a nearby area when the phone is somewhere else. */
+function ServiceAreas({ cfg, setCfg }: { cfg: TenantConfig; setCfg: (c: TenantConfig) => void }) {
+  const areas = ((cfg as unknown as { serviceAreas?: Area[] }).serviceAreas ?? []) as Area[]
+  const set = (next: Area[]) => setCfg({ ...cfg, serviceAreas: next } as TenantConfig)
+  const edit = (i: number, patch: Partial<Area>) => set(areas.map((a, j) => (j === i ? { ...a, ...patch } : a)))
+  return (
+    <Card>
+      <div className="row spread"><h2>Cities and areas</h2><Button small onClick={() => set([...areas, { name: '', lat: 12.9716, lng: 77.5946, radiusKm: 15 }])}>Add area</Button></div>
+      <div className="stack" style={{ marginTop: 12 }}>
+        {!areas.length && <p className="muted">No areas yet. Customers anywhere can search.</p>}
+        {areas.map((a, i) => (
+          <div className="row wrap" key={i} style={{ alignItems: 'flex-end' }}>
+            <div className="grow"><Input label="Name" value={a.name} onChange={(e) => edit(i, { name: e.target.value })} /></div>
+            <Input label="Latitude" type="number" step="any" value={a.lat} onChange={(e) => edit(i, { lat: Number(e.target.value) })} />
+            <Input label="Longitude" type="number" step="any" value={a.lng} onChange={(e) => edit(i, { lng: Number(e.target.value) })} />
+            <Input label="Radius (km)" type="number" value={a.radiusKm} onChange={(e) => edit(i, { radiusKm: Number(e.target.value) })} />
+            <Button small variant="danger" onClick={() => set(areas.filter((_, j) => j !== i))}>Remove</Button>
+          </div>
+        ))}
+      </div>
+    </Card>
   )
 }

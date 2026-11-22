@@ -40,6 +40,8 @@ class ApiClient(
 
     suspend inline fun <reified T> get(path: String, query: Map<String, Any?> = emptyMap(), pin: String? = null): T = send(HttpMethod.Get, path, query, null, pin, null).body()
 
+    suspend fun getText(path: String, query: Map<String, Any?> = emptyMap(), pin: String? = null): String = send(HttpMethod.Get, path, query, null, pin, null).bodyAsText()
+
     suspend inline fun <reified B : Any, reified T> post(path: String, payload: B, pin: String? = null, idempotencyKey: String? = null): T =
         send(HttpMethod.Post, path, emptyMap(), { setBody(payload) }, pin, idempotencyKey).body()
 

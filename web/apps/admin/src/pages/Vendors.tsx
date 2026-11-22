@@ -62,6 +62,7 @@ export function VendorDetail() {
   const [step, setStep] = useState<{ action: string; label: string; note?: boolean } | null>(null)
   const [note, setNote] = useState('')
   const [commission, setCommission] = useState<string | null>(null)
+  const [docFix, setDocFix] = useState<string | null>(null)
   const defaultBps = adminConfig.data?.money.defaultCommissionBps
 
   if (loading) return <Spinner />
@@ -70,6 +71,12 @@ export function VendorDetail() {
   async function run(action: string, n?: string) {
     try { setData(await api.admin.providerAction(p!.id, action, n)); toast('Updated'); setStep(null); setNote('') }
     catch (e) { toast(messageOf(e), true) }
+  }
+  async function reviewDoc(type: string, state: string, n?: string) {
+    try { setData(await api.admin.reviewDoc(p!.id, type, state, n)); setDocFix(null); setNote('') } catch (e) { toast(messageOf(e), true) }
+  }
+  async function toggleHold() {
+    try { setData(await api.admin.setHold(p!.id, !p!.payoutHold)); toast(p!.payoutHold ? 'Payout hold released' : 'Payouts held') } catch (e) { toast(messageOf(e), true) }
   }
   async function saveCommission() {
     const text = commission ?? ''
@@ -99,12 +106,20 @@ export function VendorDetail() {
             <Button variant="primary" onClick={saveCommission} disabled={commission === null}>Save</Button>
           </div>
           <p className="muted small">Applies to new bookings only. Existing bookings keep their rate.</p>
+          <h2 style={{ marginTop: 18 }}>Payouts</h2>
+          <div className="row"><Badge tone={p.payoutHold ? 'bad' : 'good'}>{p.payoutHold ? 'On hold' : 'Normal'}</Badge><Button small onClick={toggleHold}>{p.payoutHold ? 'Release hold' : 'Hold payouts'}</Button></div>
         </Card>
         <Card>
           <h2>Verification</h2>
-          <Table head={['Document', 'Reference']}>
-            {p.documents.map((d) => <tr key={d.type + d.reference}><td>{titleCase(d.type)}</td><td>{d.reference}</td></tr>)}
-            {!p.documents.length && <tr><td colSpan={2} className="muted">No documents yet</td></tr>}
+          <Table head={['Document', 'Reference', 'State', '']}>
+            {p.documents.map((d) => (
+              <tr key={d.type + d.reference}>
+                <td>{titleCase(d.type)}</td><td>{d.reference}</td>
+                <td><Badge tone={d.state === 'VERIFIED' ? 'good' : d.state === 'NEEDS_FIX' ? 'bad' : 'warn'}>{titleCase(d.state ?? 'PENDING')}</Badge>{d.note && <div className="muted small">{d.note}</div>}</td>
+                <td className="nowrap"><Button small onClick={() => void reviewDoc(d.type, 'VERIFIED')}>Verify</Button> <Button small onClick={() => setDocFix(d.type)}>Needs fix</Button></td>
+              </tr>
+            ))}
+            {!p.documents.length && <tr><td colSpan={4} className="muted">No documents yet</td></tr>}
           </Table>
           <h3 style={{ marginTop: 16 }}>Bank account</h3>
           <p className="muted">{p.bank ? `${p.bank.accountName} · ${p.bank.accountNumberMasked} · ${p.bank.ifsc}` : 'Not added yet'}</p>
@@ -119,6 +134,14 @@ export function VendorDetail() {
           ))}
         </Table>
       </Card>
+      {docFix && (
+        <Modal title={`${titleCase(docFix)} needs a fix`} onClose={() => setDocFix(null)}>
+          <form className="stack" onSubmit={(e) => { e.preventDefault(); void reviewDoc(docFix, 'NEEDS_FIX', note) }}>
+            <label className="field">What should the vendor correct?<textarea rows={3} value={note} onChange={(e) => setNote(e.target.value)} /></label>
+            <div className="row spread"><Button type="button" onClick={() => setDocFix(null)}>Cancel</Button><Button variant="primary" disabled={!note.trim()}>Send</Button></div>
+          </form>
+        </Modal>
+      )}
       {step && (
         <Modal title={step.label} onClose={() => setStep(null)}>
           <form className="stack" onSubmit={(e) => { e.preventDefault(); void run(step.action, note) }}>

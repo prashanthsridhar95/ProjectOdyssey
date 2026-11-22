@@ -69,9 +69,9 @@ Commission is a percentage of the **service amount** (not tax or fees), per vend
 | Backend API integration tests, 17 scenarios over real HTTP on H2 | pass |
 | Same flow on real PostgreSQL in Docker (`scripts/smoke.sh`) | pass |
 | Web: typecheck, production build, 8 unit tests | pass |
-| Web in a browser: admin sign-in, dashboard, vendor review screen; vendor sign-in, slots, PIN gate | checked by hand |
+| Web in a browser (Rinse "Industry" theme): admin dashboard, payments (batch, payouts, collections, refunds, ledger), commission rules with preview, customers, moderation, support, cities and areas, vendor review with per-document states; vendor overview with busiest-hours heatmap, closures, reviews with replies, bulk price edit, earnings | pages load with seeded data; write actions (reply, closure, bulk edit, resolve ticket) covered by backend tests, not clicked through |
 | Mobile: shared domain tests (9) and data tests (5, mock HTTP) | pass |
-| Android: three apps build; customer app booked and paid on an emulator, and the booking showed up in the vendor app | checked by hand |
+| Android: three apps build; customer app booked and paid on an emulator; vendor app signs in and shows the Today inbox and walk-in form (other vendor screens not clicked through); a stale session returns to sign-in | checked by hand |
 
 Not verified: iOS (see below), the admin Android app on a device (it builds), `api/openapi.yaml` against a validator, the web Docker image under load.
 
