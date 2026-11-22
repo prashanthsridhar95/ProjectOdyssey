@@ -1,0 +1,109 @@
+import type {
+  ApiErrorBody, AuditEntry, AuthResponse, Billing, Block, Customer, Dashboard, Earnings, Item, Location, LocationDraft,
+  Order, Payout, Provider, PublicConfig, Slot, StaffMember, TenantConfig, User,
+} from './types'
+
+export class ApiError extends Error {
+  constructor(public status: number, public code: string, message: string) { super(message) }
+  get isPinProblem() { return this.code === 'pin_invalid' || this.code === 'pin_locked' || this.code === 'pin_not_set' }
+}
+
+export interface ClientOptions {
+  baseUrl: string
+  tenant?: string
+  getToken: () => string | null
+  onUnauthorized?: () => void
+}
+
+interface Req { pin?: string; query?: Record<string, string | number | boolean | undefined> }
+
+/** A small typed wrapper over the REST API. Every request carries the tenant and bearer token. */
+export function createApi(opts: ClientOptions) {
+  async function call<T>(method: string, path: string, body?: unknown, req: Req = {}): Promise<T> {
+    const url = new URL(opts.baseUrl.replace(/\/$/, '') + '/v1' + path, window.location.origin)
+    Object.entries(req.query ?? {}).forEach(([k, v]) => v !== undefined && url.searchParams.set(k, String(v)))
+    const headers: Record<string, string> = { 'X-Tenant': opts.tenant ?? 'carwash' }
+    const token = opts.getToken()
+    if (token) headers.Authorization = `Bearer ${token}`
+    if (req.pin) headers['X-Owner-Pin'] = req.pin
+    if (body !== undefined) headers['Content-Type'] = 'application/json'
+    let res: Response
+    try {
+      res = await fetch(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
+    } catch {
+      throw new ApiError(0, 'network', 'Cannot reach the server. Check your connection.')
+    }
+    if (res.status === 204) return undefined as T
+    const text = await res.text()
+    const data = text ? JSON.parse(text) : undefined
+    if (!res.ok) {
+      const err = data as ApiErrorBody | undefined
+      if (res.status === 401 && token && err?.code === 'unauthorized') opts.onUnauthorized?.()
+      throw new ApiError(res.status, err?.code ?? 'error', err?.message ?? `Request failed (${res.status})`)
+    }
+    return data as T
+  }
+
+  const get = <T,>(path: string, req?: Req) => call<T>('GET', path, undefined, req)
+  const post = <T,>(path: string, body?: unknown, req?: Req) => call<T>('POST', path, body ?? {}, req)
+  const put = <T,>(path: string, body: unknown, req?: Req) => call<T>('PUT', path, body, req)
+  const del = <T,>(path: string, req?: Req) => call<T>('DELETE', path, undefined, req)
+
+  return {
+    config: () => get<PublicConfig>('/config'),
+    auth: {
+      requestOtp: (phone: string) => post<void>('/auth/otp', { phone }),
+      verifyOtp: (phone: string, code: string) => post<AuthResponse>('/auth/verify', { phone, code }),
+      staffPin: (phone: string, pin: string) => post<AuthResponse>('/auth/pin', { phone, pin }),
+      me: () => get<User>('/me'),
+    },
+    orders: {
+      act: (id: string, action: string, note?: string) => post<Order>(`/orders/${id}/actions`, { action, note }),
+    },
+    provider: {
+      me: () => get<Provider>('/provider/me'),
+      orders: (q: { date?: string; locationId?: string; status?: string }) => get<Order[]>('/provider/orders', { query: q }),
+      slots: (locationId: string, date: string, itemIds?: string[]) =>
+        get<Slot[]>(`/locations/${locationId}/availability`, { query: { date, itemIds: itemIds?.join(',') } }),
+      blocks: (locationId: string, date: string) => get<Block[]>(`/provider/locations/${locationId}/blocks`, { query: { date } }),
+      addBlock: (locationId: string, startsAt: string, endsAt: string, reason: string) =>
+        post<Block>(`/provider/locations/${locationId}/blocks`, { startsAt, endsAt, reason }),
+      removeBlock: (locationId: string, blockId: string) => del<void>(`/provider/locations/${locationId}/blocks/${blockId}`),
+      walkIn: (b: { locationId: string; itemIds: string[]; variantKey: string; startsAt: string; customerName: string; customerPhone?: string }) =>
+        post<Order>('/provider/walk-ins', b),
+      items: (locationId: string) => get<Item[]>(`/provider/locations/${locationId}/items`),
+      saveItem: (locationId: string, item: Omit<Item, 'id'> & { id?: string }, pin?: string) =>
+        item.id
+          ? put<Item>(`/provider/locations/${locationId}/items/${item.id}`, item, { pin })
+          : post<Item>(`/provider/locations/${locationId}/items`, item, { pin }),
+      deleteItem: (locationId: string, itemId: string, pin: string) => del<void>(`/provider/locations/${locationId}/items/${itemId}`, { pin }),
+      updateLocation: (id: string, patch: Partial<Location>) => put<Location>(`/provider/locations/${id}`, patch),
+      staff: () => get<StaffMember[]>('/provider/staff'),
+      addStaff: (s: { name: string; phone: string; role: string; pin: string }, pin: string) => post<StaffMember>('/provider/staff', s, { pin }),
+      removeStaff: (id: string, pin: string) => del<void>(`/provider/staff/${id}`, { pin }),
+      earnings: (pin: string) => get<Earnings>('/provider/earnings', { pin }),
+      payouts: (pin: string) => get<Payout[]>('/provider/payouts', { pin }),
+      setOwnerPin: (newPin: string, currentPin?: string) => put<void>('/provider/owner-pin', { newPin, currentPin }),
+      verifyPin: (pin: string) => post<void>('/provider/verify-pin', {}, { pin }),
+      saveBank: (b: { accountName: string; accountNumber: string; ifsc: string }, pin: string) => put<Provider>('/provider/bank', b, { pin }),
+    },
+    admin: {
+      dashboard: () => get<Dashboard>('/admin/dashboard'),
+      providers: (status?: string) => get<Provider[]>('/admin/providers', { query: { status } }),
+      provider: (id: string) => get<Provider>(`/admin/providers/${id}`),
+      createProvider: (b: { name: string; ownerName: string; ownerPhone: string; location: LocationDraft }) => post<Provider>('/admin/providers', b),
+      providerAction: (id: string, action: string, note?: string) => post<Provider>(`/admin/providers/${id}/actions`, { action, note }),
+      setCommission: (id: string, bps: number | null) => put<Provider>(`/admin/providers/${id}/commission`, { bps }),
+      orders: (status?: string) => get<Order[]>('/admin/orders', { query: { status, limit: 200 } }),
+      customers: () => get<Customer[]>('/admin/customers'),
+      payouts: () => get<Payout[]>('/admin/payouts'),
+      runPayouts: () => post<Payout[]>('/admin/payouts/run'),
+      billing: (month?: string) => get<Billing>('/admin/billing', { query: { month } }),
+      config: () => get<TenantConfig>('/admin/config'),
+      saveConfig: (c: TenantConfig) => put<TenantConfig>('/admin/config', c),
+      audit: () => get<AuditEntry[]>('/admin/audit'),
+    },
+  }
+}
+
+export type Api = ReturnType<typeof createApi>

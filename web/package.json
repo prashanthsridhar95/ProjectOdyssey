@@ -1,0 +1,22 @@
+{
+  "name": "odyssey-web",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "dev:admin": "npm run dev -w @odyssey/admin",
+    "dev:vendor": "npm run dev -w @odyssey/vendor",
+    "build": "npm run build -w @odyssey/admin && npm run build -w @odyssey/vendor",
+    "typecheck": "tsc -b packages/api packages/ui apps/admin apps/vendor",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.2.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "jsdom": "^26.1.0",
+    "typescript": "~5.9.3",
+    "vite": "^7.3.0",
+    "vitest": "^3.2.0"
+  }
+}

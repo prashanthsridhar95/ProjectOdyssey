@@ -1,0 +1,40 @@
+# Local proof-of-concept stack: PostgreSQL + the Kotlin backend (+ the web apps once built).
+# Start:   docker compose up --build
+# API:     http://localhost:8080/v1/config      Admin: http://localhost:5173   Vendor: http://localhost:5174
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: odyssey
+      POSTGRES_USER: odyssey
+      POSTGRES_PASSWORD: odyssey
+    ports: ["55432:5432"]   # 55432 on the host so it never clashes with a local Postgres
+    volumes: [dbdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U odyssey -d odyssey"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build: ./backend
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      DB_URL: jdbc:postgresql://db:5432/odyssey
+      DB_USER: odyssey
+      DB_PASSWORD: odyssey
+      JWT_SECRET: local-poc-secret-change-before-any-real-use-please
+      DEV_OTP: "123456"          # the dev identity provider accepts this code; replace with the IAM adapter
+      SEED: "true"               # loads demo vendors on first start
+      DEFAULT_TENANT: carwash
+      CORS_ORIGINS: "*"
+    ports: ["8080:8080"]
+
+  web:
+    build: ./web
+    depends_on: [backend]
+    ports: ["5173:5173", "5174:5174"]   # 5173 admin panel, 5174 vendor dashboard
+
+volumes:
+  dbdata:

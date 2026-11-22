@@ -1,0 +1,39 @@
+[versions]
+kotlin = "2.4.21"
+ktor = "3.6.1"
+exposed = "0.61.0"
+serialization = "1.13.0"
+flyway = "11.8.2"
+h2 = "2.3.232"
+postgres = "42.7.14"
+hikari = "6.3.0"
+logback = "1.5.18"
+javaJwt = "4.5.0"
+
+[libraries]
+serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
+ktor-server-core = { module = "io.ktor:ktor-server-core", version.ref = "ktor" }
+ktor-server-netty = { module = "io.ktor:ktor-server-netty", version.ref = "ktor" }
+ktor-server-content-negotiation = { module = "io.ktor:ktor-server-content-negotiation", version.ref = "ktor" }
+ktor-serialization-json = { module = "io.ktor:ktor-serialization-kotlinx-json", version.ref = "ktor" }
+ktor-server-status-pages = { module = "io.ktor:ktor-server-status-pages", version.ref = "ktor" }
+ktor-server-auth = { module = "io.ktor:ktor-server-auth", version.ref = "ktor" }
+ktor-server-auth-jwt = { module = "io.ktor:ktor-server-auth-jwt", version.ref = "ktor" }
+ktor-server-cors = { module = "io.ktor:ktor-server-cors", version.ref = "ktor" }
+ktor-server-call-logging = { module = "io.ktor:ktor-server-call-logging", version.ref = "ktor" }
+ktor-server-test-host = { module = "io.ktor:ktor-server-test-host", version.ref = "ktor" }
+ktor-client-content-negotiation = { module = "io.ktor:ktor-client-content-negotiation", version.ref = "ktor" }
+exposed-core = { module = "org.jetbrains.exposed:exposed-core", version.ref = "exposed" }
+exposed-jdbc = { module = "org.jetbrains.exposed:exposed-jdbc", version.ref = "exposed" }
+flyway-core = { module = "org.flywaydb:flyway-core", version.ref = "flyway" }
+flyway-pg = { module = "org.flywaydb:flyway-database-postgresql", version.ref = "flyway" }
+h2 = { module = "com.h2database:h2", version.ref = "h2" }
+postgres = { module = "org.postgresql:postgresql", version.ref = "postgres" }
+hikari = { module = "com.zaxxer:HikariCP", version.ref = "hikari" }
+logback = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
+java-jwt = { module = "com.auth0:java-jwt", version.ref = "javaJwt" }
+kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test-junit5", version.ref = "kotlin" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }

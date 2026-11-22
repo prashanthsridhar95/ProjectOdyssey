@@ -1,0 +1,73 @@
+openapi: 3.0.3
+info:
+  title: Odyssey marketplace API
+  version: 0.1.0
+  description: >
+    One REST contract for the web apps and the mobile apps. Money is in minor units (paise). Times are ISO-8601 UTC.
+    Every request carries X-Tenant (the marketplace); authenticated calls also carry a bearer token.
+    POST /orders and POST /orders/{id}/pay accept an Idempotency-Key header so retries never double book or double charge.
+    Owner-only actions need the Owner PIN in X-Owner-Pin.
+servers: [{ url: http://localhost:8080/v1 }]
+components:
+  securitySchemes:
+    bearer: { type: http, scheme: bearer }
+  parameters:
+    Tenant: { name: X-Tenant, in: header, schema: { type: string, default: carwash } }
+    OwnerPin: { name: X-Owner-Pin, in: header, schema: { type: string }, description: 6-digit Owner PIN }
+    Idempotency: { name: Idempotency-Key, in: header, schema: { type: string } }
+  schemas:
+    Error: { type: object, required: [code, message], properties: { code: { type: string }, message: { type: string } } }
+    User: { type: object, properties: { id: {type: string}, name: {type: string}, phone: {type: string}, role: { type: string, enum: [CUSTOMER, PROVIDER_OWNER, PROVIDER_MANAGER, PROVIDER_STAFF, ADMIN, SUPPORT, FINANCE] }, providerId: {type: string} } }
+    AuthResponse: { type: object, properties: { accessToken: {type: string}, expiresAt: {type: string}, user: { $ref: '#/components/schemas/User' } } }
+    Slot: { type: object, properties: { startsAt: {type: string}, endsAt: {type: string}, free: {type: integer}, bookable: {type: boolean} } }
+    Item: { type: object, properties: { id: {type: string}, name: {type: string}, description: {type: string}, category: {type: string}, durationMinutes: {type: integer}, active: {type: boolean}, prices: { type: object, additionalProperties: { type: integer } } } }
+    LocationSummary: { type: object, properties: { id: {type: string}, name: {type: string}, providerName: {type: string}, address: {type: string}, lat: {type: number}, lng: {type: number}, distanceKm: {type: number}, priceFromMinor: {type: integer}, nextFreeAt: {type: string}, openNow: {type: boolean}, ratingAvg: {type: number}, ratingCount: {type: integer}, amenities: { type: array, items: {type: string} } } }
+    Order:
+      type: object
+      properties:
+        id: {type: string}
+        code: { type: string, description: Short code shown at the counter }
+        status: { type: string, description: A state name from the tenant's order flow }
+        statusLabel: {type: string}
+        source: { type: string, enum: [APP, WALK_IN] }
+        startsAt: {type: string}
+        endsAt: {type: string}
+        subtotalMinor: {type: integer}
+        taxMinor: {type: integer}
+        feeMinor: {type: integer}
+        totalMinor: {type: integer}
+        commissionBps: { type: integer, description: Hidden from customers }
+        actions: { type: array, items: {type: string}, description: Actions the caller may take now }
+    Provider: { type: object, properties: { id: {type: string}, name: {type: string}, status: { type: string, enum: [SUBMITTED, UNDER_REVIEW, CHANGES_REQUESTED, APPROVED, LIVE, SUSPENDED, REJECTED] }, commissionBps: {type: integer} } }
+security: [{ bearer: [] }]
+paths:
+  /config: { get: { summary: The marketplace's words, variants, order flow and policies, security: [], parameters: [{ $ref: '#/components/parameters/Tenant' }], responses: { '200': { description: OK } } } }
+  /auth/otp: { post: { summary: Send a one-time code, security: [], responses: { '204': { description: Sent } } } }
+  /auth/verify: { post: { summary: Sign in with phone + code (creates customers on first use), security: [], responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AuthResponse' } } } } } } }
+  /auth/pin: { post: { summary: Counter staff sign in with phone + 4-digit PIN, security: [], responses: { '200': { description: OK } } } }
+  /locations: { get: { summary: Places near a point (lat, lng, sort, q, variant, openNow, maxPrice), security: [], responses: { '200': { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/LocationSummary' } } } } } } } }
+  /locations/{id}: { get: { summary: Place with services and reviews, security: [], responses: { '200': { description: OK } } } }
+  /locations/{id}/availability: { get: { summary: Slots for a day (date, itemIds), security: [], responses: { '200': { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Slot' } } } } } } } }
+  /orders:
+    get: { summary: My orders (customer), responses: { '200': { description: OK } } }
+    post: { summary: Place an order and hold the slot, parameters: [{ $ref: '#/components/parameters/Idempotency' }], responses: { '201': { description: Held, content: { application/json: { schema: { $ref: '#/components/schemas/Order' } } } }, '409': { description: Slot no longer available } } }
+  /orders/{id}: { get: { summary: Order with its history, responses: { '200': { description: OK } } } }
+  /orders/{id}/pay: { post: { summary: Pay for a held order, parameters: [{ $ref: '#/components/parameters/Idempotency' }], responses: { '200': { description: Paid (confirmed when the vendor auto-accepts) }, '402': { description: Payment declined }, '409': { description: Hold expired } } } }
+  /orders/{id}/actions: { post: { summary: Move an order through its flow (ACCEPT, REJECT, START, COMPLETE, NO_SHOW, CANCEL_BY_CUSTOMER, CANCEL_BY_PROVIDER, ADMIN_CANCEL), responses: { '200': { description: OK } } } }
+  /orders/{id}/review: { post: { summary: Rate a completed order, responses: { '201': { description: Created } } } }
+  /assets: { get: { summary: Saved vehicles, responses: { '200': { description: OK } } }, post: { summary: Save a vehicle, responses: { '201': { description: Created } } } }
+  /provider/me: { get: { summary: The signed-in vendor with its outlets, responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Provider' } } } } } } }
+  /provider/orders: { get: { summary: Bookings for a day and outlet, responses: { '200': { description: OK } } } }
+  /provider/walk-ins: { post: { summary: Take capacity for a customer at the counter, responses: { '201': { description: Created } } } }
+  /provider/locations/{id}/items: { get: { summary: Menu, responses: { '200': { description: OK } } }, post: { summary: Add a service (Owner PIN), parameters: [{ $ref: '#/components/parameters/OwnerPin' }], responses: { '201': { description: Created }, '403': { description: Wrong PIN } } } }
+  /provider/locations/{id}/blocks: { get: { summary: Blocked time, responses: { '200': { description: OK } } }, post: { summary: Block a time range, responses: { '201': { description: Created }, '409': { description: Bookings exist in that time } } } }
+  /provider/earnings: { get: { summary: Earnings (Owner PIN), parameters: [{ $ref: '#/components/parameters/OwnerPin' }], responses: { '200': { description: OK }, '423': { description: PIN locked after 5 wrong tries } } } }
+  /provider/staff: { get: { summary: Staff, responses: { '200': { description: OK } } }, post: { summary: Add staff (Owner PIN), responses: { '201': { description: Created } } } }
+  /admin/dashboard: { get: { summary: Marketplace numbers, responses: { '200': { description: OK } } } }
+  /admin/providers: { get: { summary: Vendors by status, responses: { '200': { description: OK } } }, post: { summary: Onboard a vendor, responses: { '201': { description: Created } } } }
+  /admin/providers/{id}/actions: { post: { summary: Verification workflow (REVIEW, REQUEST_CHANGES, APPROVE, REJECT, GO_LIVE, SUSPEND, REINSTATE), responses: { '200': { description: OK } } } }
+  /admin/providers/{id}/commission: { put: { summary: Set a vendor's commission (null = tenant default), responses: { '200': { description: OK } } } }
+  /admin/payouts/run: { post: { summary: Pay vendors for completed orders not yet paid out, responses: { '200': { description: OK } } } }
+  /admin/billing: { get: { summary: Platform subscription statement for a month, responses: { '200': { description: OK } } } }
+  /admin/config: { get: { summary: Tenant rules, responses: { '200': { description: OK } } }, put: { summary: Update tenant rules, responses: { '200': { description: OK } } } }
+  /webhooks/payments: { post: { summary: Gateway callback, signed with X-Signature (HMAC-SHA256 of the body), security: [], responses: { '200': { description: OK }, '401': { description: Bad signature } } } }

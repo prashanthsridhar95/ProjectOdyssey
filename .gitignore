@@ -1,0 +1,12 @@
+.gradle/
+build/
+.idea/
+*.iml
+local.properties
+node_modules/
+dist/
+.DS_Store
+*.log
+.env
+.kotlin/
+.superpowers/
