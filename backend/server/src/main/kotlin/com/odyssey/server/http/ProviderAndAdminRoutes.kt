@@ -204,6 +204,18 @@ fun Route.providerRoutes(ctx: AppContext) {
             call.respond(ctx.reports.overview(tenant, actor, q["locationId"], q["range"] ?: "week"))
         }
 
+        /** Counts for the console's menu badges, so the console never downloads whole lists just to count them. */
+        get("/badges") {
+            val actor = call.actor(); actor.requireProvider()
+            val tenant = call.tenantFor(ctx, actor)
+            val zone = ZoneId.of("Asia/Kolkata")
+            val day = LocalDate.now(zone)
+            val today = ctx.repos.orders.byProvider(actor.providerId!!, null, null, day.atStartOfDay(zone).toInstant(), day.plusDays(1).atStartOfDay(zone).toInstant())
+            val waiting = today.filter { it.status != tenant.config.flow.initial && it.status != "EXPIRED" }.count { "ACCEPT" in it.dto(tenant, actor).actions }
+            val unreplied = ctx.reports.reviews(actor, 200).count { it.reply == null }
+            call.respond(mapOf("bookingsWaiting" to waiting, "reviewsUnreplied" to unreplied))
+        }
+
         get("/reviews") {
             val actor = call.actor(); actor.requireProvider()
             call.respond(ctx.reports.reviews(actor, call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 200) ?: 50).map { it.dto() })
@@ -259,6 +271,17 @@ fun Route.adminRoutes(ctx: AppContext) {
         get("/dashboard") {
             val actor = call.actor(); actor.requireBackoffice()
             call.respond(ctx.admin.dashboard(call.tenantFor(ctx, actor), call.request.queryParameters["range"] ?: "7d"))
+        }
+
+        /** Counts for the admin menu badges: work waiting on someone, without downloading the lists. */
+        get("/badges") {
+            val actor = call.actor(); actor.requireBackoffice()
+            val tenant = call.tenantFor(ctx, actor)
+            call.respond(mapOf(
+                "vendorsToReview" to ctx.repos.providers.list(actor.tenantId, ProviderStatus.SUBMITTED).size,
+                "ticketsOpen" to ctx.repos.tickets.list(actor.tenantId, TicketStatus.OPEN).size,
+                "menuOutliers" to ctx.admin.moderationOutliers(tenant).size,
+            ))
         }
 
         get("/providers") {
