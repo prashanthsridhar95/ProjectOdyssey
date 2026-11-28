@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { Avatar, ErrorBoundary, IconButton, TitleSuffix, useOnline } from './components'
+import { Avatar, ErrorBoundary, initials, IconButton, TitleSuffix, useOnline } from './components'
 import { Icon, type IconName } from './icons'
 
 // ---- theme ----
@@ -49,8 +49,10 @@ function flatten(nav: (NavItem | NavGroup)[]): NavGroup[] {
   return groups
 }
 
-export function AppShell({ brand, subtitle, nav, user, onLogout, children, env, commands = [], banner }: {
+export function AppShell({ brand, subtitle, nav, user, onLogout, children, env, commands = [], banner, account = false }: {
   brand: string
+  /** The brand is a customer's business (vendor console), not the platform: show its initials and its name as written. */
+  account?: boolean
   subtitle: string
   nav: (NavItem | NavGroup)[]
   user: ShellUser | string
@@ -87,10 +89,17 @@ export function AppShell({ brand, subtitle, nav, user, onLogout, children, env, 
       <div className={`shell ${navOpen ? 'nav-open' : ''}`}>
         <a href="#main" className="sr-only">Skip to content</a>
         <aside className="sidebar" aria-label="Main">
-          <Link to="/" className="brand" style={{ textDecoration: 'none', color: 'inherit' }}>
-            <span className="mark"><Icon name="droplet" size={16} /></span>
-            <span className="word">{brand}<small>{subtitle}</small></span>
-          </Link>
+          {account ? (
+            <Link to="/" className="brand account" title={`${brand} · ${subtitle}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+              <span className="mark">{initials(brand)}</span>
+              <span className="who"><strong>{brand}</strong><small><Icon name="droplet" size={11} />{subtitle}</small></span>
+            </Link>
+          ) : (
+            <Link to="/" className="brand" style={{ textDecoration: 'none', color: 'inherit' }}>
+              <span className="mark"><Icon name="droplet" size={16} /></span>
+              <span className="word">{brand}<small>{subtitle}</small></span>
+            </Link>
+          )}
           <nav className="nav">
             {groups.map((g, gi) => (
               <div className="group" key={gi}>

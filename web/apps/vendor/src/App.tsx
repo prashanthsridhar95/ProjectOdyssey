@@ -65,7 +65,7 @@ export function App() {
   const live = me.data.status === 'LIVE'
 
   return (
-    <AppShell brand={me.data.name} subtitle={config?.tenant.name ? `on ${config.tenant.name}` : 'Vendor'} user={{ name: user.name, role: ROLE[user.role] ?? user.role, detail: me.data.name }}
+    <AppShell account brand={me.data.name} subtitle={config?.tenant.name ? `on ${config.tenant.name}` : 'Vendor'} user={{ name: user.name, role: ROLE[user.role] ?? user.role, detail: me.data.name }}
       onLogout={logout} nav={nav} commands={commands} env={import.meta.env.DEV ? { label: 'Development', demo: true } : undefined}
       banner={!live && (
         <div className={`banner ${['SUSPENDED', 'REJECTED'].includes(me.data.status) ? 'bad' : 'warn'}`} role="status">
