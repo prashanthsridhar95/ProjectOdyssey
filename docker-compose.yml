@@ -35,7 +35,7 @@ services:
     build:
       context: ./web
       args:
-        VITE_API_URL: ${PUBLIC_API_URL:-https://carwashapis.prashanthsridhar.com}   # set PUBLIC_API_URL=http://localhost:8080 to stay local
+        VITE_API_URL: ${CONSOLE_API_URL:-}   # empty: the consoles call /v1 on their own address, which nginx proxies to the backend
     depends_on: [backend]
     ports: ["5173:5173", "5174:5174"]   # 5173 admin panel, 5174 vendor dashboard
 
@@ -44,6 +44,7 @@ services:
     volumes:
       - ./mobile/app/customer-web/build/dist/wasmJs/productionExecutable:/usr/share/nginx/html:ro
       - ./infra/customer-web/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on: [backend]   # nginx proxies /v1 to it
     ports: ["5175:5175"]
 
 volumes:

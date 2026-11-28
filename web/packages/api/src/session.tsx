@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ApiError, createApi, type Api } from './client'
+import { clearCache } from './hooks'
 import type { PublicConfig, Role, User } from './types'
 
 interface Session {
@@ -33,6 +34,7 @@ export function SessionProvider({ storageKey, baseUrl, tenant, allowedRoles, fal
   const logout = useCallback(() => {
     tokenRef.current = null
     setUser(null)
+    clearCache()
     try { localStorage.removeItem(storageKey) } catch { /* private mode */ }
   }, [storageKey])
 
@@ -49,20 +51,25 @@ export function SessionProvider({ storageKey, baseUrl, tenant, allowedRoles, fal
   }, [allowedRoles, storageKey])
 
   useEffect(() => {
-    api.config().then(setConfig).catch(() => undefined)
+    // The tenant config rarely changes: use the last copy at once and refresh it in the background.
+    const cfgKey = `${storageKey}.config`
+    try { const c = localStorage.getItem(cfgKey); if (c) setConfig(JSON.parse(c) as PublicConfig) } catch { /* ignore */ }
+    api.config().then((c) => { setConfig(c); try { localStorage.setItem(cfgKey, JSON.stringify(c)) } catch { /* full */ } }).catch(() => undefined)
     try {
       const raw = localStorage.getItem(storageKey)
       if (raw) {
+        // Open the console straight away with the saved user; check the token in the background.
+        // Only a rejected token signs out, so a network blip never throws someone out of a working console.
         const saved = JSON.parse(raw) as { token: string; user: User }
         tokenRef.current = saved.token
-        api.auth.me().then((u) => setUser(u))
-          // Only a rejected token signs out; a network blip keeps the saved session so the console still opens.
-          .catch((e: unknown) => { if (e instanceof ApiError && (e.status === 401 || e.status === 403)) logout(); else setUser(saved.user) })
-          .finally(() => setReady(true))
-        return
+        setUser(saved.user)
+        api.auth.me()
+          .then((u) => { if (!allowedRoles.includes(u.role)) { logout(); return } setUser((prev) => (prev && JSON.stringify(prev) === JSON.stringify(u) ? prev : u)) })
+          .catch((e: unknown) => { if (e instanceof ApiError && (e.status === 401 || e.status === 403)) logout() })
       }
     } catch { /* ignore */ }
     setReady(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api, storageKey, logout])
 
   useEffect(() => {

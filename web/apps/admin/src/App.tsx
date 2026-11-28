@@ -1,20 +1,24 @@
 import { useMemo } from 'react'
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom'
 import { useAsync, useLabels, useSession } from '@odyssey/api'
-import { AppShell, NotFound, type Command, type NavGroup } from '@odyssey/ui'
+import { AppShell, PageSuspense, PrefetchPages, lazyPage, NotFound, type Command, type NavGroup } from '@odyssey/ui'
 import { Login } from './Login'
-import { Dashboard } from './pages/Dashboard'
-import { Vendors, VendorDetail, NewVendor } from './pages/Vendors'
-import { OrdersPage } from './pages/Orders'
-import { Payments } from './pages/Payments'
-import { Rules } from './pages/Rules'
-import { Support } from './pages/Support'
-import { Customers } from './pages/Customers'
-import { Moderation } from './pages/Moderation'
-import { BillingPage } from './pages/Billing'
-import { SettingsPage } from './pages/Settings'
-import { Audit } from './pages/Audit'
-import { PromotionsPage } from './pages/Promotions'
+
+// Each page downloads on first visit; the rest are fetched in the background once the console is idle.
+const Dashboard = lazyPage(() => import('./pages/Dashboard'), 'Dashboard')
+const Vendors = lazyPage(() => import('./pages/Vendors'), 'Vendors')
+const VendorDetail = lazyPage(() => import('./pages/Vendors'), 'VendorDetail')
+const NewVendor = lazyPage(() => import('./pages/Vendors'), 'NewVendor')
+const OrdersPage = lazyPage(() => import('./pages/Orders'), 'OrdersPage')
+const Payments = lazyPage(() => import('./pages/Payments'), 'Payments')
+const Rules = lazyPage(() => import('./pages/Rules'), 'Rules')
+const Support = lazyPage(() => import('./pages/Support'), 'Support')
+const Customers = lazyPage(() => import('./pages/Customers'), 'Customers')
+const Moderation = lazyPage(() => import('./pages/Moderation'), 'Moderation')
+const BillingPage = lazyPage(() => import('./pages/Billing'), 'BillingPage')
+const SettingsPage = lazyPage(() => import('./pages/Settings'), 'SettingsPage')
+const Audit = lazyPage(() => import('./pages/Audit'), 'Audit')
+const PromotionsPage = lazyPage(() => import('./pages/Promotions'), 'PromotionsPage')
 
 const ROLE_LABEL: Record<string, string> = { ADMIN: 'Administrator', SUPPORT: 'Support', FINANCE: 'Finance' }
 
@@ -23,17 +27,18 @@ export function App() {
   const labels = useLabels()
   const navigate = useNavigate()
   // Work waiting on someone: shown as counts in the menu so nothing sits unseen.
-  const queue = useAsync(() => (user ? Promise.all([api.admin.providers('SUBMITTED'), api.admin.tickets('OPEN'), api.admin.outliers()]) : Promise.resolve(null)), [user?.id])
-  const [review, tickets, outliers] = queue.data ?? [[], [], []]
+  // One small counts call instead of three full lists.
+  const queue = useAsync(() => (user ? api.admin.badges() : Promise.resolve(undefined)), [user?.id], { key: 'admin.badges', persist: true })
+  const toReview = queue.data?.vendorsToReview ?? 0, openTickets = queue.data?.ticketsOpen ?? 0, outliers = queue.data?.menuOutliers ?? 0
 
   const nav: NavGroup[] = useMemo(() => [
     { items: [{ to: '/', label: 'Dashboard', end: true, icon: 'dashboard' }] },
     { label: 'Marketplace', items: [
-      { to: '/vendors', label: `${labels.provider}s`, icon: 'store', count: review.length, keywords: 'onboarding verification kyc' },
+      { to: '/vendors', label: `${labels.provider}s`, icon: 'store', count: toReview, keywords: 'onboarding verification kyc' },
       { to: '/orders', label: `${labels.order}s`, icon: 'calendar', keywords: 'orders bookings refunds cancel' },
       { to: '/customers', label: `${labels.customer}s`, icon: 'users' },
-      { to: '/moderation', label: 'Menu moderation', icon: 'tag', count: outliers.length, countTone: 'neutral', keywords: 'prices outliers' },
-      { to: '/support', label: 'Support', icon: 'lifebuoy', count: tickets.length, keywords: 'tickets reports complaints' },
+      { to: '/moderation', label: 'Menu moderation', icon: 'tag', count: outliers, countTone: 'neutral', keywords: 'prices outliers' },
+      { to: '/support', label: 'Support', icon: 'lifebuoy', count: openTickets, keywords: 'tickets reports complaints' },
     ] },
     { label: 'Money', items: [
       { to: '/payments', label: 'Payments', icon: 'wallet', keywords: 'payouts ledger collections refunds settlement' },
@@ -45,7 +50,7 @@ export function App() {
       { to: '/settings', label: 'Settings', icon: 'settings', keywords: 'tax fees cancellation policy areas cities' },
       { to: '/audit', label: 'Audit log', icon: 'history', keywords: 'history changes who' },
     ] },
-  ], [labels, review.length, tickets.length, outliers.length])
+  ], [labels, toReview, openTickets, outliers])
 
   const commands: Command[] = useMemo(() => [
     { id: 'new-vendor', label: `Add a ${labels.provider.toLowerCase()}`, section: 'Actions', icon: 'plus', run: () => navigate('/vendors/new') },
@@ -65,6 +70,8 @@ export function App() {
       commands={commands}
       env={import.meta.env.DEV ? { label: 'Development', demo: true } : undefined}
     >
+      <PrefetchPages />
+      <PageSuspense>
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/vendors" element={<Vendors />} />
@@ -83,6 +90,7 @@ export function App() {
         <Route path="/audit" element={<Audit />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
+      </PageSuspense>
     </AppShell>
   )
 }

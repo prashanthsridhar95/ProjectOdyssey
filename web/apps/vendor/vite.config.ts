@@ -7,5 +7,7 @@ const api = process.env.API_PROXY ?? 'http://localhost:8080'
 export default defineConfig({
   plugins: [react()],
   server: { port: Number(process.env.PORT ?? 5174), strictPort: true, host: true, proxy: { '/v1': { target: api, changeOrigin: true, headers: { origin: 'http://localhost:5173' } } } },
+  // Third-party code (React, the router) changes rarely: a separate file stays cached across our releases.
+  build: { rollupOptions: { output: { manualChunks: (id) => (id.includes('node_modules') && !id.includes('@fontsource') ? 'vendor' : undefined) } } },
   preview: { port: 5174, host: true },
 })

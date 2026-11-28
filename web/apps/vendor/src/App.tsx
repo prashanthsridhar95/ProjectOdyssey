@@ -1,19 +1,21 @@
 import { useMemo } from 'react'
 import { Link, Route, Routes, useNavigate } from 'react-router-dom'
-import { isoDate, useAsync, useSession } from '@odyssey/api'
-import { AppShell, Badge, Button, Card, EmptyState, Icon, NotFound, Splash, type Command, type NavGroup } from '@odyssey/ui'
+import { useAsync, useSession } from '@odyssey/api'
+import { AppShell, PageSuspense, PrefetchPages, lazyPage, Badge, Button, Card, EmptyState, Icon, NotFound, Splash, type Command, type NavGroup } from '@odyssey/ui'
 import { Login } from './Login'
-import { OverviewPage } from './pages/Overview'
-import { BookingsPage } from './pages/Bookings'
-import { CalendarPage } from './pages/Calendar'
-import { MenuPage } from './pages/Menu'
-import { ReviewsPage } from './pages/Reviews'
-import { ClosuresPage } from './pages/Closures'
-import { BulkMenuPage } from './pages/BulkMenu'
-import { EarningsPage } from './pages/Earnings'
-import { StaffPage } from './pages/Staff'
-import { SettingsPage } from './pages/Settings'
-import { PromotionsPage } from './pages/Promotions'
+
+// Each page downloads on first visit; the rest are fetched in the background once the console is idle.
+const OverviewPage = lazyPage(() => import('./pages/Overview'), 'OverviewPage')
+const BookingsPage = lazyPage(() => import('./pages/Bookings'), 'BookingsPage')
+const CalendarPage = lazyPage(() => import('./pages/Calendar'), 'CalendarPage')
+const MenuPage = lazyPage(() => import('./pages/Menu'), 'MenuPage')
+const ReviewsPage = lazyPage(() => import('./pages/Reviews'), 'ReviewsPage')
+const ClosuresPage = lazyPage(() => import('./pages/Closures'), 'ClosuresPage')
+const BulkMenuPage = lazyPage(() => import('./pages/BulkMenu'), 'BulkMenuPage')
+const EarningsPage = lazyPage(() => import('./pages/Earnings'), 'EarningsPage')
+const StaffPage = lazyPage(() => import('./pages/Staff'), 'StaffPage')
+const SettingsPage = lazyPage(() => import('./pages/Settings'), 'SettingsPage')
+const PromotionsPage = lazyPage(() => import('./pages/Promotions'), 'PromotionsPage')
 
 const ROLE: Record<string, string> = { PROVIDER_OWNER: 'Owner', PROVIDER_MANAGER: 'Manager', PROVIDER_STAFF: 'Counter staff' }
 const STATUS_TEXT: Record<string, string> = {
@@ -28,11 +30,12 @@ const STATUS_TEXT: Record<string, string> = {
 export function App() {
   const { user, logout, api, config } = useSession()
   const navigate = useNavigate()
-  const me = useAsync(() => (user ? api.provider.me() : Promise.resolve(undefined)), [user?.id])
-  const today = useAsync(() => (me.data?.locations[0] ? api.provider.orders({ date: isoDate(), locationId: me.data.locations[0].id }) : Promise.resolve([])), [me.data?.id])
-  const waiting = (today.data ?? []).filter((o) => o.actions.includes('ACCEPT')).length
-  const reviews = useAsync(() => (user ? api.provider.reviews() : Promise.resolve([])), [user?.id])
-  const unreplied = (reviews.data ?? []).filter((r) => !r.reply).length
+  // The business is kept across reloads so the console draws at once; it refreshes in the background.
+  const me = useAsync(() => (user ? api.provider.me() : Promise.resolve(undefined)), [user?.id], { key: 'vendor.me', persist: true })
+  // Menu badges come from one small counts call, not from downloading today's bookings and every review.
+  const badges = useAsync(() => (user ? api.provider.badges() : Promise.resolve(undefined)), [user?.id], { key: 'vendor.badges', persist: true })
+  const waiting = badges.data?.bookingsWaiting ?? 0
+  const unreplied = badges.data?.reviewsUnreplied ?? 0
 
   const owner = user?.role === 'PROVIDER_OWNER'
   const manager = owner || user?.role === 'PROVIDER_MANAGER'
@@ -77,12 +80,14 @@ export function App() {
           {manager && <Link to="/settings" className="small">Check your details</Link>}
         </div>
       )}>
+      <PrefetchPages />
+      <PageSuspense>
       <Routes>
         <Route path="/" element={<OverviewPage provider={me.data} />} />
-        <Route path="/bookings" element={<BookingsPage provider={me.data} onChange={today.reload} />} />
+        <Route path="/bookings" element={<BookingsPage provider={me.data} onChange={badges.reload} />} />
         <Route path="/calendar" element={<CalendarPage provider={me.data} />} />
         <Route path="/closures" element={<ClosuresPage provider={me.data} />} />
-        <Route path="/reviews" element={<ReviewsPage onChange={reviews.reload} />} />
+        <Route path="/reviews" element={<ReviewsPage onChange={badges.reload} />} />
         {owner && <Route path="/bulk" element={<BulkMenuPage provider={me.data} />} />}
         {manager && <Route path="/menu" element={<MenuPage provider={me.data} />} />}
         {manager && <Route path="/promotions" element={<PromotionsPage provider={me.data} owner={owner} />} />}
@@ -91,6 +96,7 @@ export function App() {
         {manager && <Route path="/settings" element={<SettingsPage provider={me.data} onChanged={me.reload} owner={owner} />} />}
         <Route path="*" element={<NotFound />} />
       </Routes>
+      </PageSuspense>
     </AppShell>
   )
 }

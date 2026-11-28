@@ -58,7 +58,17 @@ export function createApi(opts: ClientOptions) {
     return data as T
   }
 
-  const get = <T,>(path: string, req?: Req) => call<T>('GET', path, undefined, req)
+  // Identical GETs made at the same moment (two components wanting the same data) share one request.
+  const inflight = new Map<string, Promise<unknown>>()
+  const get = <T,>(path: string, req?: Req): Promise<T> => {
+    if (req?.pin) return call<T>('GET', path, undefined, req)
+    const k = path + JSON.stringify(req?.query ?? {})
+    const existing = inflight.get(k)
+    if (existing) return existing as Promise<T>
+    const p = call<T>('GET', path, undefined, req).finally(() => inflight.delete(k))
+    inflight.set(k, p)
+    return p
+  }
   const post = <T,>(path: string, body?: unknown, req?: Req) => call<T>('POST', path, body ?? {}, req)
   const put = <T,>(path: string, body: unknown, req?: Req) => call<T>('PUT', path, body, req)
   const del = <T,>(path: string, req?: Req) => call<T>('DELETE', path, undefined, req)
@@ -77,6 +87,8 @@ export function createApi(opts: ClientOptions) {
     },
     provider: {
       me: () => get<Provider>('/provider/me'),
+      /** Counts for the menu badges only: much lighter than loading the lists. */
+      badges: () => get<{ bookingsWaiting: number; reviewsUnreplied: number }>('/provider/badges'),
       orders: (q: { date?: string; locationId?: string; status?: string }) => get<Order[]>('/provider/orders', { query: q }),
       slots: (locationId: string, date: string, itemIds?: string[]) =>
         get<Slot[]>(`/locations/${locationId}/availability`, { query: { date, itemIds: itemIds?.join(',') } }),
@@ -115,6 +127,8 @@ export function createApi(opts: ClientOptions) {
       saveBank: (b: { accountName: string; accountNumber: string; ifsc: string }, pin: string) => put<Provider>('/provider/bank', b, { pin }),
     },
     admin: {
+      /** Counts for the menu badges only. */
+      badges: () => get<{ vendorsToReview: number; ticketsOpen: number; menuOutliers: number }>('/admin/badges'),
       dashboard: (range = '7d') => get<Dashboard>('/admin/dashboard', { query: { range } }),
       batch: () => get<Batch>('/admin/payments/batch'),
       collections: () => get<PaymentRow[]>('/admin/payments/collections'),
