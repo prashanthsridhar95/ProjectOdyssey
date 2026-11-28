@@ -97,7 +97,7 @@ fun InboxScreen(
                 if (i < 2) Box(Modifier.width(1.dp).height(64.dp).background(Ind.divider))
             }
         }
-        if (queued > 0) Row(Modifier.fillMaxWidth().padding(20.dp, 12.dp, 20.dp, 0.dp).background(Ind.a100).hairline(Ind.accent).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (queued > 0) Row(Modifier.fillMaxWidth().padding(20.dp, 12.dp, 20.dp, 0.dp).background(Ind.a100, Ind.rSm).hairline(Ind.accent).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Lucide.CloudOff, null, Modifier.size(18.dp), tint = Ind.a800); Body("Offline. $queued action${if (queued > 1) "s" else ""} will sync when you're back online.", size = 13, color = Ind.a800)
         }
         Row(Modifier.fillMaxWidth().padding(20.dp, 12.dp)) {
@@ -208,7 +208,7 @@ fun BookingDetailScreen(orderId: String, onBack: () -> Unit, report: (String) ->
                     if (i < ord.lines.lastIndex) Box(Modifier.fillMaxWidth().height(1.dp).background(Ind.divider))
                 }
             }
-            if (queued > 0) Row(Modifier.fillMaxWidth().background(Ind.a100).hairline(Ind.accent).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (queued > 0) Row(Modifier.fillMaxWidth().background(Ind.a100, Ind.rSm).hairline(Ind.accent).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Lucide.CloudOff, null, Modifier.size(18.dp), tint = Ind.a800); Body("Offline. Actions will sync when you're back online.", size = 13, color = Ind.a800)
             }
             Section("History") {

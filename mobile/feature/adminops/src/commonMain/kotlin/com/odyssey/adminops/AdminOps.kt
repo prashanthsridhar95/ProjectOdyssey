@@ -2,6 +2,7 @@ package com.odyssey.adminops
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -12,6 +13,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -188,7 +190,7 @@ private fun VendorsTab(filter: String?, onFilter: (String?) -> Unit, onOpen: (St
             if (rows.isEmpty()) EmptyState(Lucide.Store, if (needle.isNotEmpty()) "No matches for \"$q\"" else if (filter == "SUBMITTED") "Nothing waiting for review" else "No ${labels.provider.lowercase()}s here", if (filter == "SUBMITTED") "New applications show up here." else null)
             rows.forEach { p ->
                 Row(Modifier.fillMaxWidth().bottomHairline().clickable { onOpen(p.id) }.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    BlueprintArt(Modifier.size(48.dp), seed = p.id, showCar = false, monogram = initialsOf(p.name))
+                    BlueprintArt(Modifier.size(48.dp).clip(Ind.rSm), seed = p.id, showCar = false, monogram = initialsOf(p.name))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Body(p.name, size = 15, weight = FontWeight.SemiBold)
                         Body("${p.ownerName ?: ""} · ${p.ownerPhone?.let(::formatPhone) ?: ""}", size = 12, color = Ind.muted)
@@ -479,7 +481,7 @@ private fun AccountTab(user: User, onSignOut: () -> Unit) {
     var asking by remember { mutableStateOf(false) }
     Screen("Account") {
         Row(Modifier.fillMaxWidth().hairline().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(48.dp).background(Ind.a100), Alignment.Center) { Heading(initialsOf(user.name), 18, color = Ind.a800) }
+            Box(Modifier.size(48.dp).background(Ind.a100, CircleShape), Alignment.Center) { Heading(initialsOf(user.name), 18, color = Ind.a800) }
             Column { Heading(user.name, 20); Body("${user.role.name.titleCase()} · ${formatPhone(user.phone)}", size = 12, color = Ind.muted) }
         }
         Section(tenant.tenant.name) {

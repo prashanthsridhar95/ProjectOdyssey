@@ -101,7 +101,7 @@ private fun DayGrid(cal: Calendar, loc: ProviderLocation, date: String) {
                     val inBay = o.status == "CHECKED_IN" || o.status == "IN_PROGRESS"
                     Column(
                         Modifier.offset(colW * (b - 1), y(from)).width(colW - 3.dp).height(y(to) - y(from) - 2.dp)
-                            .background(if (o.source == "WALK_IN") Ind.n200 else Ind.a100).then(if (inBay) Modifier.border2(Ind.accent) else Modifier.hairline(if (o.source == "WALK_IN") Ind.n300 else Ind.a300)).padding(4.dp),
+                            .background(if (o.source == "WALK_IN") Ind.n200 else Ind.a100, Ind.rSm).then(if (inBay) Modifier.border2(Ind.accent).pulsing(0.7f, 2600) else Modifier.hairline(if (o.source == "WALK_IN") Ind.n300 else Ind.a300)).padding(4.dp),
                     ) {
                         Body(o.assetLabel ?: o.customerName, size = 10, weight = FontWeight.SemiBold)
                         Body(if (inBay) "In bay" else if (o.source == "WALK_IN") "Walk-in" else o.lines.joinToString { it.name.substringBefore(" ") }, size = 10, color = Ind.muted)
@@ -115,11 +115,11 @@ private fun DayGrid(cal: Calendar, loc: ProviderLocation, date: String) {
     }
 }
 
-private fun Modifier.border2(c: androidx.compose.ui.graphics.Color) = this.border(2.dp, c)
+private fun Modifier.border2(c: androidx.compose.ui.graphics.Color) = this.border(2.dp, c, Ind.rSm)
 
 @Composable
 private fun Legend(text: String, fill: androidx.compose.ui.graphics.Color, line: androidx.compose.ui.graphics.Color) =
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) { Box(Modifier.size(12.dp).background(fill).hairline(line)); Body(text, size = 11, color = Ind.muted) }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) { Box(Modifier.size(12.dp).background(fill, Ind.rSm).hairline(line)); Body(text, size = 11, color = Ind.muted) }
 
 // ---- Block time ----
 
@@ -154,7 +154,7 @@ private fun BlockSheet(loc: ProviderLocation, date: String, onDismiss: () -> Uni
                 }
             }
             Section("Repeat") { Seg(listOf("Once", "Every day", "Every week"), repeat) { repeat = it } }
-            error?.let { msg -> Row(Modifier.fillMaxWidth().background(Ind.a100).hairline(Ind.accent).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) { Icon(Lucide.TriangleAlert, null, Modifier.size(20.dp), tint = Ind.a800); Body(msg, size = 13, color = Ind.a800) } }
+            error?.let { msg -> Row(Modifier.fillMaxWidth().background(Ind.a100, Ind.rSm).hairline(Ind.accent).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) { Icon(Lucide.TriangleAlert, null, Modifier.size(20.dp), tint = Ind.a800); Body(msg, size = 13, color = Ind.a800) } }
             PrimaryButton(if (busy) "Blocking…" else "Block ${minToClock(from)} – ${minToClock(to)}", {
                 busy = true; error = null
                 scope.launch {

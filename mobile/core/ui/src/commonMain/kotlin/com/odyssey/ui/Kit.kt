@@ -14,6 +14,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -41,7 +42,7 @@ fun ConfirmDialog(
     val blocked = reasonLabel != null && reasonRequired && text.isBlank()
     AlertDialog(
         onDismissRequest = onDismiss, containerColor = Ind.bg, shape = androidx.compose.foundation.shape.RoundedCornerShape(0.dp),
-        icon = { Box(Modifier.size(40.dp).background(if (danger) Color(0xFFFDE8E6) else Ind.a100), Alignment.Center) { Icon(if (danger) Lucide.TriangleAlert else Lucide.Info, null, Modifier.size(20.dp), tint = if (danger) Ind.danger else Ind.a700) } },
+        icon = { Box(Modifier.size(40.dp).background(if (danger) Color(0xFFFDE8E6) else Ind.a100, Ind.rMd), Alignment.Center) { Icon(if (danger) Lucide.TriangleAlert else Lucide.Info, null, Modifier.size(20.dp), tint = if (danger) Ind.danger else Ind.a700) } },
         title = { Heading(title, 22) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -50,7 +51,7 @@ fun ConfirmDialog(
             }
         },
         confirmButton = {
-            Box(Modifier.height(44.dp).background(if (blocked) Ind.n300 else if (danger) Ind.danger else Ind.accent).clickable(enabled = !blocked) { onConfirm(text.trim()) }.padding(horizontal = 16.dp), Alignment.Center) {
+            Box(Modifier.height(44.dp).clip(Ind.rMd).background(if (blocked) Ind.n300 else if (danger) Ind.danger else Ind.accent).pressable(enabled = !blocked) { onConfirm(text.trim()) }.padding(horizontal = 16.dp), Alignment.Center) {
                 Heading(confirmLabel, 15, color = if (blocked) Ind.mutedSoft else Ind.bg)
             }
         },
@@ -62,7 +63,7 @@ fun ConfirmDialog(
 @Composable
 fun EmptyState(icon: ImageVector, title: String, body: String? = null, action: String? = null, onAction: (() -> Unit)? = null) {
     Column(Modifier.fillMaxWidth().padding(vertical = 36.dp, horizontal = 16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Box(Modifier.size(52.dp).border(1.dp, Ind.n400), Alignment.Center) { Icon(icon, null, Modifier.size(22.dp), tint = Ind.mutedSoft) }
+        Box(Modifier.floating().size(52.dp).border(1.dp, Ind.n400, Ind.rMd), Alignment.Center) { Icon(icon, null, Modifier.size(22.dp), tint = Ind.mutedSoft) }
         Spacer(Modifier.height(4.dp))
         Heading(title, 19)
         if (body != null) Text(body, color = Ind.muted, fontSize = 14.sp, textAlign = TextAlign.Center, modifier = Modifier.widthIn(max = 320.dp))
@@ -77,7 +78,7 @@ private fun Text(text: String, color: Color, fontSize: androidx.compose.ui.unit.
 /** Search box with a magnifier and a clear button. */
 @Composable
 fun SearchField(value: String, onChange: (String) -> Unit, placeholder: String, modifier: Modifier = Modifier) {
-    Row(modifier.fillMaxWidth().height(44.dp).background(Ind.surface).hairline().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+    Row(modifier.fillMaxWidth().height(44.dp).background(Ind.surface, Ind.rSm).hairline().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Icon(Lucide.Search, null, Modifier.size(18.dp), tint = Ind.muted)
         BasicTextField(
             value, onChange, Modifier.weight(1f), singleLine = true, textStyle = TextStyle(fontFamily = LocalFonts.current.body, fontSize = 16.sp, color = Ind.text),
@@ -93,7 +94,7 @@ data class Stat(val label: String, val value: String, val foot: String? = null, 
 /** Numbers in a hairline grid, two to a row. */
 @Composable
 fun StatGrid(stats: List<Stat>) {
-    Column(Modifier.fillMaxWidth().hairline()) {
+    Column(Modifier.fillMaxWidth().enterOnce().background(Ind.bg, Ind.rMd).hairline(shape = Ind.rMd)) {
         stats.chunked(2).forEachIndexed { r, row ->
             if (r > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(Ind.divider))
             Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
@@ -121,33 +122,33 @@ fun Notice(text: String, tone: NoticeTone = NoticeTone.INFO, action: String? = n
         NoticeTone.BAD -> Triple(Color(0xFFFDE8E6), Ind.danger, Lucide.TriangleAlert)
         NoticeTone.GOOD -> Triple(Color(0xFFE3F5EA), Color(0xFF1A7F4B), Lucide.CircleCheck)
     }
-    Row(Modifier.fillMaxWidth().background(bg).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, null, Modifier.size(18.dp), tint = fg)
+    Row(Modifier.fillMaxWidth().enterOnce().background(bg, Ind.rMd).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, Modifier.size(18.dp).then(if (tone == NoticeTone.WARN || tone == NoticeTone.BAD) Modifier.pulsing(0.55f) else Modifier), tint = fg)
         Body(text, size = 13, color = fg, modifier = Modifier.weight(1f))
-        if (action != null && onAction != null) Box(Modifier.clickable(onClick = onAction).padding(horizontal = 4.dp, vertical = 6.dp)) { Heading(action, 14, color = fg) }
+        if (action != null && onAction != null) Box(Modifier.clip(Ind.rSm).clickable(onClick = onAction).padding(horizontal = 6.dp, vertical = 6.dp)) { Heading(action, 14, color = fg) }
     }
 }
 
 /** A tappable row in a settings list: icon, title, a line of detail, and a chevron or a trailing value. */
 @Composable
 fun SettingRow(icon: ImageVector, title: String, detail: String? = null, trailing: String? = null, badge: Int = 0, danger: Boolean = false, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-        Box(Modifier.size(36.dp).background(if (danger) Color(0xFFFDE8E6) else Ind.a100), Alignment.Center) { Icon(icon, null, Modifier.size(18.dp), tint = if (danger) Ind.danger else Ind.a700) }
+    Row(Modifier.fillMaxWidth().clip(Ind.rMd).pressable(onClick = onClick).padding(vertical = 14.dp, horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        Box(Modifier.size(36.dp).background(if (danger) Color(0xFFFDE8E6) else Ind.a100, Ind.rSm), Alignment.Center) { Icon(icon, null, Modifier.size(18.dp), tint = if (danger) Ind.danger else Ind.a700) }
         Column(Modifier.weight(1f)) {
             Body(title, size = 15, weight = FontWeight.Medium, color = if (danger) Ind.danger else Ind.text)
             if (detail != null) Body(detail, size = 12, color = Ind.muted)
         }
-        if (badge > 0) Box(Modifier.background(Ind.danger).padding(horizontal = 7.dp, vertical = 1.dp)) { Body(badge.toString(), size = 12, color = Ind.bg, weight = FontWeight.SemiBold) }
+        if (badge > 0) Box(Modifier.pulsing(0.6f).background(Ind.danger, Ind.pill).padding(horizontal = 8.dp, vertical = 1.dp)) { Body(badge.toString(), size = 12, color = Ind.bg, weight = FontWeight.SemiBold) }
         if (trailing != null) Body(trailing, size = 13, color = Ind.muted)
         if (!danger) Icon(Lucide.ChevronRight, null, Modifier.size(18.dp), tint = Ind.mutedSoft)
     }
 }
 
-/** Snackbars in the house style: dark bar, square corners. */
+/** Snackbars in the house style: dark bar, rounded corners. */
 @Composable
 fun IndSnackbarHost(state: SnackbarHostState, modifier: Modifier = Modifier) {
     SnackbarHost(state, modifier) { data ->
-        Snackbar(Modifier.padding(12.dp), containerColor = Ind.text, contentColor = Ind.bg, shape = androidx.compose.foundation.shape.RoundedCornerShape(0.dp)) { Body(data.visuals.message, color = Ind.bg) }
+        Snackbar(Modifier.padding(12.dp), containerColor = Ind.text, contentColor = Ind.bg, shape = Ind.rMd) { Body(data.visuals.message, color = Ind.bg) }
     }
 }
 
@@ -155,16 +156,16 @@ fun IndSnackbarHost(state: SnackbarHostState, modifier: Modifier = Modifier) {
 @Composable
 fun AppSplash(name: String, subtitle: String, failure: String? = null, onRetry: (() -> Unit)? = null) {
     Box(Modifier.fillMaxSize()) {
-        BlueprintArt(Modifier.fillMaxSize(), seed = "splash", showCar = false)
+        BlueprintArt(Modifier.fillMaxSize(), seed = "splash", showCar = false, animated = true)
         Column(Modifier.align(Alignment.Center).padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Box(Modifier.size(52.dp).border(1.dp, Ind.a300), Alignment.Center) { Icon(Lucide.Droplet, null, Modifier.size(24.dp), tint = Ind.a100) }
+            Box(Modifier.size(52.dp).border(1.dp, Ind.a300, Ind.rMd), Alignment.Center) { Icon(Lucide.Droplet, null, Modifier.size(24.dp).floating(2f, 3200), tint = Ind.a100) }
             Heading(name.uppercase(), 34, color = Ind.a100)
             Body(subtitle, size = 13, color = Ind.a300)
             Spacer(Modifier.height(12.dp))
-            if (failure == null) androidx.compose.material3.LinearProgressIndicator(Modifier.width(140.dp).height(2.dp), color = Ind.a300, trackColor = Ind.a800)
+            if (failure == null) androidx.compose.material3.LinearProgressIndicator(Modifier.width(140.dp).height(3.dp).clip(Ind.pill), color = Ind.a300, trackColor = Ind.a800)
             else {
                 Body(failure, size = 14, color = Ind.a100)
-                if (onRetry != null) Box(Modifier.border(1.dp, Ind.a300).clickable(onClick = onRetry).padding(horizontal = 18.dp, vertical = 10.dp)) { Heading("Try again", 15, color = Ind.a100) }
+                if (onRetry != null) Box(Modifier.clip(Ind.rMd).border(1.dp, Ind.a300, Ind.rMd).clickable(onClick = onRetry).padding(horizontal = 18.dp, vertical = 10.dp)) { Heading("Try again", 15, color = Ind.a100) }
             }
         }
     }

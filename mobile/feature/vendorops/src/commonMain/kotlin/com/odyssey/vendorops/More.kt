@@ -1,12 +1,14 @@
 package com.odyssey.vendorops
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -34,7 +36,7 @@ fun MoreScreen(
     LaunchedEffect(p.id) { if (owner) staff = runCatching { app.provider.staff().size }.getOrNull() }
     Screen("More") {
         Row(Modifier.fillMaxWidth().hairline().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            BlueprintArt(Modifier.size(52.dp), seed = p.id, showCar = false, monogram = initialsOf(p.name))
+            BlueprintArt(Modifier.size(52.dp).clip(Ind.rMd), seed = p.id, showCar = false, monogram = initialsOf(p.name))
             Column(Modifier.weight(1f)) { Heading(p.name, 20); Body("${user.name} · ${user.role.name.removePrefix("PROVIDER_").titleCase()}", size = 12, color = Ind.muted) }
             StatusBadge(p.status.titleCase(), p.status)
         }
@@ -90,7 +92,7 @@ fun ReviewsScreen(onBack: () -> Unit, report: (String) -> Unit, onChanged: () ->
                     if (r.comment.isNotBlank()) Body(r.comment) else Body("Rating only, no comment.", size = 13, color = Ind.mutedSoft)
                     if (r.tags.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { r.tags.take(3).forEach { Tag(it) } }
                     when {
-                        r.reply != null -> Column(Modifier.fillMaxWidth().background(Ind.surface).padding(10.dp)) { Body("Your reply${r.replyAt?.let { " · ${relativeTime(it)}" } ?: ""}", size = 12, color = Ind.muted); Body(r.reply!!, size = 14) }
+                        r.reply != null -> Column(Modifier.fillMaxWidth().background(Ind.surface, Ind.rSm).padding(10.dp)) { Body("Your reply${r.replyAt?.let { " · ${relativeTime(it)}" } ?: ""}", size = 12, color = Ind.muted); Body(r.reply!!, size = 14) }
                         open == r.id -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Field("", text, { if (it.length <= 500) text = it }, multiline = true, placeholder = if (r.rating <= 3) "Say sorry, and what you will do about it" else "Thank them by name", supporting = "${text.length}/500")
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -231,7 +233,7 @@ fun StaffScreen(onBack: () -> Unit, report: (String) -> Unit, onChanged: () -> U
             if (people.size <= 1) EmptyState(Lucide.Users, "Only you so far", "Give each person their own sign-in, so every action is tied to someone.", "Add staff") { adding = true }
             people.sortedBy { it.role.ordinal }.forEach { u ->
                 Row(Modifier.fillMaxWidth().bottomHairline().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Box(Modifier.size(40.dp).background(Ind.a100), Alignment.Center) { Body(initialsOf(u.name), weight = FontWeight.SemiBold, color = Ind.a800) }
+                    Box(Modifier.size(40.dp).background(Ind.a100, CircleShape), Alignment.Center) { Body(initialsOf(u.name), weight = FontWeight.SemiBold, color = Ind.a800) }
                     Column(Modifier.weight(1f)) { Body(u.name, weight = FontWeight.Medium); Body("${u.role.name.removePrefix("PROVIDER_").titleCase()} · ${formatPhone(u.phone)}", size = 12, color = Ind.muted) }
                     if (u.role != Role.PROVIDER_OWNER) Icon(Lucide.Trash2, "Remove ${u.name}", Modifier.size(20.dp).clickable { removing = u }, tint = Ind.muted)
                 }

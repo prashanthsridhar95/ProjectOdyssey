@@ -14,6 +14,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -85,18 +87,19 @@ fun Section(title: String, content: @Composable ColumnScope.() -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { Caps(title); content() }
 }
 
-/** A hairline card with registration marks. Pass [onClick] to make it tappable. */
+/** A rounded hairline card that rises in when first shown. Pass [onClick] to make it tappable (it settles when pressed). */
 @Composable
 fun SurfaceCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, padding: Int = 12, content: @Composable ColumnScope.() -> Unit) {
-    val base = modifier.fillMaxWidth().padding(6.dp).blueprint().then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+    val base = modifier.fillMaxWidth().padding(6.dp).enterOnce().then(if (onClick != null) Modifier.clip(Ind.rMd).pressable(onClick = onClick) else Modifier).blueprint(fill = Ind.bg)
     Column(base.padding(padding.dp), verticalArrangement = Arrangement.spacedBy(6.dp), content = content)
 }
 
 @Composable
 fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, height: Int = 52, trailing: String? = null) {
+    val fill by androidx.compose.animation.animateColorAsState(if (enabled) Ind.accent else Ind.n300, Motion.quick(), label = "primary")
     Box(Modifier.padding(6.dp).then(modifier)) {
         Row(
-            Modifier.fillMaxWidth().height(height.dp).blueprint(fill = if (enabled) Ind.accent else Ind.n300, line = if (enabled) Ind.accent else Ind.n300, marks = enabled).clickable(enabled = enabled, onClick = onClick).padding(horizontal = 16.dp),
+            Modifier.fillMaxWidth().height(height.dp).clip(Ind.rMd).pressable(enabled = enabled, onClick = onClick).blueprint(fill = fill, line = fill, shape = Ind.rMd).padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = if (trailing != null) Arrangement.SpaceBetween else Arrangement.Center,
         ) {
             Heading(text, 17, color = if (enabled) Ind.bg else Ind.mutedSoft)
@@ -108,7 +111,7 @@ fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifi
 @Composable
 fun SecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, danger: Boolean = false, icon: ImageVector? = null) {
     Row(
-        modifier.height(44.dp).hairline(if (danger) Ind.danger else Ind.divider).clickable(enabled = enabled, onClick = onClick).padding(horizontal = 14.dp),
+        modifier.height(44.dp).clip(Ind.rMd).pressable(enabled = enabled, onClick = onClick).hairline(if (danger) Ind.danger else Ind.divider, Ind.rMd).padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
     ) {
         if (icon != null) Icon(icon, null, Modifier.size(16.dp), tint = if (danger) Ind.danger else if (enabled) Ind.text else Ind.mutedSoft)
@@ -118,7 +121,7 @@ fun SecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modi
 
 @Composable
 fun GhostButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) =
-    Box(modifier.height(44.dp).clickable(onClick = onClick).padding(horizontal = 8.dp), contentAlignment = Alignment.Center) { Heading(text, 15, color = Ind.accent) }
+    Box(modifier.height(44.dp).clip(Ind.rSm).pressable(onClick = onClick).padding(horizontal = 8.dp), contentAlignment = Alignment.Center) { Heading(text, 15, color = Ind.accent) }
 
 @Composable
 fun Chip(text: String, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) = Choice(text, selected, enabled = enabled, onClick = onClick)
@@ -147,7 +150,7 @@ fun Field(
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (label.isNotEmpty()) Body(label, size = 12, color = Ind.muted)
         BasicTextField(
-            value, onChange, Modifier.fillMaxWidth().then(if (multiline) Modifier.heightIn(min = 100.dp, max = 220.dp) else Modifier.height(height.dp)).then(if (bare) Modifier else Modifier.background(Ind.surface).hairline()).padding(horizontal = if (bare) 0.dp else 10.dp, vertical = if (multiline) 10.dp else 0.dp),
+            value, onChange, Modifier.fillMaxWidth().then(if (multiline) Modifier.heightIn(min = 100.dp, max = 220.dp) else Modifier.height(height.dp)).then(if (bare) Modifier else Modifier.background(Ind.surface, Ind.rSm).hairline()).padding(horizontal = if (bare) 0.dp else 10.dp, vertical = if (multiline) 10.dp else 0.dp),
             enabled = enabled, singleLine = !multiline, textStyle = TextStyle(fontFamily = LocalFonts.current.body, fontSize = 16.sp, color = Ind.text),
             keyboardOptions = KeyboardOptions(keyboardType = keyboard), visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
             cursorBrush = SolidColor(Ind.accent),
@@ -166,7 +169,8 @@ fun CodeBoxes(value: String, length: Int = 6, secret: Boolean = false, onChange:
         decorationBox = {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 repeat(length) { i ->
-                    Box(Modifier.weight(1f).height(48.dp).background(Ind.surface).border(1.dp, if (i == value.length) Ind.accent else Ind.divider), contentAlignment = Alignment.Center) {
+                    val line by androidx.compose.animation.animateColorAsState(if (i == value.length) Ind.accent else Ind.divider, Motion.quick(), label = "code")
+                    Box(Modifier.weight(1f).height(48.dp).background(Ind.surface, Ind.rSm).border(if (i == value.length) 1.5.dp else 1.dp, line, Ind.rSm), contentAlignment = Alignment.Center) {
                         Heading(value.getOrNull(i)?.let { if (secret) "•" else it.toString() } ?: "", 22)
                     }
                 }
@@ -177,11 +181,14 @@ fun CodeBoxes(value: String, length: Int = 6, secret: Boolean = false, onChange:
 
 @Composable
 fun RadioRow(label: String, selected: Boolean, trailing: String? = null, height: Int = 52, onClick: () -> Unit) {
+    val bg by androidx.compose.animation.animateColorAsState(if (selected) Ind.a100 else Color.Transparent, Motion.quick(), label = "radioBg")
+    val line by androidx.compose.animation.animateColorAsState(if (selected) Ind.accent else Ind.divider, Motion.quick(), label = "radioLine")
+    val ring by androidx.compose.animation.core.animateDpAsState(if (selected) 5.dp else 1.5.dp, Motion.springy(), label = "radioRing")
     Row(
-        Modifier.fillMaxWidth().height(height.dp).background(if (selected) Ind.a100 else Color.Transparent).border(1.dp, if (selected) Ind.accent else Ind.divider).clickable(onClick = onClick).padding(horizontal = 12.dp),
+        Modifier.fillMaxWidth().height(height.dp).clip(Ind.rMd).pressable(onClick = onClick).background(bg, Ind.rMd).border(1.dp, line, Ind.rMd).padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Box(Modifier.size(18.dp).border(if (selected) 5.dp else 1.5.dp, if (selected) Ind.accent else Ind.mutedSoft, CircleShape))
+        Box(Modifier.size(18.dp).border(ring, if (selected) Ind.accent else Ind.mutedSoft, CircleShape))
         Body(label, size = 15, modifier = Modifier.weight(1f))
         if (trailing != null) Body(trailing, size = 13, color = Ind.muted)
     }
@@ -190,18 +197,22 @@ fun RadioRow(label: String, selected: Boolean, trailing: String? = null, height:
 @Composable
 fun CheckRow(label: String, checked: Boolean, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Box(Modifier.size(20.dp).then(if (checked) Modifier.background(Ind.accent) else Modifier.border(1.5.dp, Ind.mutedSoft)), contentAlignment = Alignment.Center) {
-            if (checked) Icon(Lucide.Check, null, Modifier.size(14.dp), tint = Ind.bg)
+        val fill by androidx.compose.animation.animateColorAsState(if (checked) Ind.accent else Color.Transparent, Motion.quick(), label = "check")
+        val tick by androidx.compose.animation.core.animateFloatAsState(if (checked) 1f else 0f, Motion.springy(), label = "tick")
+        Box(Modifier.size(20.dp).background(fill, Ind.rXs).border(1.5.dp, if (checked) Ind.accent else Ind.mutedSoft, Ind.rXs), contentAlignment = Alignment.Center) {
+            Icon(Lucide.Check, null, Modifier.size(14.dp).graphicsLayer { scaleX = tick; scaleY = tick; alpha = tick }, tint = Ind.bg)
         }
         Body(label, size = 15)
     }
 }
 
-/** Square on/off switch from the design. */
+/** On/off switch: a pill track whose thumb springs across. (Named for the original square design.) */
 @Composable
 fun SquareToggle(on: Boolean, onChange: (Boolean) -> Unit) {
-    Box(Modifier.width(44.dp).height(26.dp).background(if (on) Ind.accent else Ind.n300).clickable { onChange(!on) }) {
-        Box(Modifier.align(if (on) Alignment.CenterEnd else Alignment.CenterStart).padding(3.dp).size(20.dp).background(Ind.bg))
+    val track by androidx.compose.animation.animateColorAsState(if (on) Ind.accent else Ind.n300, Motion.quick(), label = "toggle")
+    val x by androidx.compose.animation.core.animateDpAsState(if (on) 18.dp else 0.dp, Motion.springy(), label = "thumb")
+    Box(Modifier.width(44.dp).height(26.dp).background(track, Ind.pill).clip(Ind.pill).clickable(role = androidx.compose.ui.semantics.Role.Switch) { onChange(!on) }) {
+        Box(Modifier.align(Alignment.CenterStart).offset(x = x).padding(3.dp).size(20.dp).background(Ind.bg, CircleShape))
     }
 }
 
@@ -225,8 +236,10 @@ fun BottomTabs(items: List<TabItem>, selected: Int, onSelect: (Int) -> Unit) {
                     contentAlignment = Alignment.Center,
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Box(Modifier.width(52.dp).height(28.dp).background(if (on) Ind.a100 else Color.Transparent), Alignment.Center) {
-                            Icon(t.icon, null, Modifier.size(22.dp), tint = if (on) Ind.a800 else Ind.muted)
+                        val well by androidx.compose.animation.animateColorAsState(if (on) Ind.a100 else Color.Transparent, Motion.quick(), label = "tabWell")
+                        val lift by androidx.compose.animation.core.animateFloatAsState(if (on) 1f else 0f, Motion.springy(), label = "tabLift")
+                        Box(Modifier.width(52.dp).height(28.dp).background(well, Ind.pill), Alignment.Center) {
+                            Icon(t.icon, null, Modifier.size(22.dp).graphicsLayer { val s = 1f + 0.08f * lift; scaleX = s; scaleY = s; translationY = -1.5f * lift * density }, tint = if (on) Ind.a800 else Ind.muted)
                         }
                         Body(t.label, size = 12, color = if (on) Ind.a800 else Ind.muted, weight = if (on) FontWeight.SemiBold else FontWeight.Medium)
                     }

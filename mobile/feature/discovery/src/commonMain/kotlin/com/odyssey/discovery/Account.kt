@@ -1,6 +1,7 @@
 package com.odyssey.discovery
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.AlertDialog
@@ -35,7 +36,7 @@ fun GarageScreen(onAdd: () -> Unit, bottomBar: @Composable () -> Unit) {
         if (customer.garage.isEmpty()) EmptyState(Lucide.Car, "No ${vertical?.assetNoun?.lowercase() ?: "item"}s saved yet", "Save one so prices match it and the counter knows what to expect.")
         customer.garage.forEach { a ->
             val on = customer.vehicle?.id == a.id
-            Row(Modifier.fillMaxWidth().then(if (on) Modifier.background(Ind.a100).hairline(Ind.accent) else Modifier.hairline()).clickable { customer.vehicle = a }.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth().then(if (on) Modifier.background(Ind.a100, Ind.rSm).hairline(Ind.accent) else Modifier.hairline()).clickable { customer.vehicle = a }.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Icon(vertical?.iconFor(a) ?: Lucide.Car, null, Modifier.size(24.dp), tint = if (on) Ind.a800 else Ind.text)
                 Column(Modifier.weight(1f)) { Body(a.label, weight = FontWeight.Medium); if (on) Body("Used for prices", size = 12, color = Ind.a800) }
                 GhostButton("Remove", { removing = a })
@@ -64,7 +65,7 @@ fun AccountScreen(onNotifications: () -> Unit, onFavorites: () -> Unit, onSignOu
     var signOut by remember { mutableStateOf(false) }
     Screen("Account", bottomBar = bottomBar) {
         Row(Modifier.fillMaxWidth().hairline().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(48.dp).background(Ind.a100), Alignment.Center) { Heading(initialsOf(user?.name ?: "?"), 18, color = Ind.a800) }
+            Box(Modifier.size(48.dp).background(Ind.a100, CircleShape), Alignment.Center) { Heading(initialsOf(user?.name ?: "?"), 18, color = Ind.a800) }
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) { Heading(user?.name ?: "", 22); Body(user?.phone?.let(::formatPhone) ?: "", color = Ind.muted) }
         }
         Section("Saved places") {
@@ -204,7 +205,7 @@ fun NotificationsScreen(onBack: () -> Unit, onOpenOrder: (String) -> Unit) {
             if (items.isEmpty()) EmptyState(Lucide.Bell, "No notifications yet", "Updates about your bookings show up here.")
             items.forEach { n ->
                 Row(Modifier.fillMaxWidth().hairline().clickable { n.orderId?.let(onOpenOrder) }.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Box(Modifier.size(36.dp).background(Ind.accent), Alignment.Center) { Heading("R", 16, color = Ind.bg) }
+                    Box(Modifier.size(36.dp).background(Ind.accent, Ind.rSm), Alignment.Center) { Heading("R", 16, color = Ind.bg) }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                         Row { Body(n.title, weight = FontWeight.SemiBold, modifier = Modifier.weight(1f)); Body(formatTime(n.createdAt), size = 12, color = Ind.muted) }
                         Body(n.body, size = 13, color = Ind.muted)

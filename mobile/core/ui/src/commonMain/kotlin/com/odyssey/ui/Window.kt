@@ -45,7 +45,7 @@ fun SideRail(brand: String, items: List<TabItem>, selected: Int, onSelect: (Int)
         items.forEachIndexed { i, t ->
             val on = i == selected
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 10.dp).background(if (on) Ind.a100 else androidx.compose.ui.graphics.Color.Transparent)
+                Modifier.fillMaxWidth().padding(horizontal = 10.dp).background(if (on) Ind.a100 else androidx.compose.ui.graphics.Color.Transparent, Ind.rSm)
                     .clickable { onSelect(i) }.padding(horizontal = 12.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {

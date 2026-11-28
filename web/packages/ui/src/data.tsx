@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { Button, EmptyState, SearchInput, SkeletonRows, downloadText, toCsv } from './components'
 import { Icon, type IconName } from './icons'
 
@@ -175,7 +175,7 @@ export function BarChart({ data, format = String, height = 200, label }: { data:
           return (
             <g key={d.key} onMouseEnter={() => setHover(i)}>
               <rect x={x} y={padT} width={bw} height={H - padT - padB} fill="transparent" />
-              <rect x={x + bw * 0.18} y={H - padB - h} width={bw * 0.64} height={h} fill={hover === i ? 'var(--c-primary-dark)' : 'var(--c-primary)'} />
+              <rect className="bar" style={{ '--i': i } as CSSProperties} rx={Math.min(4, bw * 0.16)} x={x + bw * 0.18} y={H - padB - h} width={bw * 0.64} height={h} fill={hover === i ? 'var(--c-primary-dark)' : 'var(--c-primary)'} />
               {(i % every === 0) && <text x={x + bw / 2} y={H - 6} textAnchor="middle" fontSize="11" fill="var(--c-faint)">{d.label}</text>}
             </g>
           )

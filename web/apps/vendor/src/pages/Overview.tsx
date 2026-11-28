@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
 import { money, useAsync, useSession } from '@odyssey/api'
 import type { Provider } from '@odyssey/api'
@@ -37,7 +37,7 @@ export function OverviewPage({ provider }: { provider: Provider }) {
             <div className="heat" style={{ gridTemplateColumns: `44px repeat(${data.hours.length}, 1fr)`, marginTop: 14 }} role="img" aria-label="Bookings by day and hour">
               <span />{data.hours.map((h) => <span key={h} className="hd">{h > 12 ? `${h - 12}p` : h === 12 ? '12p' : `${h}a`}</span>)}
               {data.days.map((d, di) => (
-                <Row key={d} day={d} hours={data.hours} cells={data.heatmap[di] ?? []} peak={peak} />
+                <Row key={d} row={di} day={d} hours={data.hours} cells={data.heatmap[di] ?? []} peak={peak} />
               ))}
             </div>
           </Card>
@@ -47,11 +47,11 @@ export function OverviewPage({ provider }: { provider: Provider }) {
   )
 }
 
-function Row({ day, hours, cells, peak }: { day: string; hours: number[]; cells: number[]; peak: number }) {
+function Row({ day, hours, cells, peak, row = 0 }: { day: string; hours: number[]; cells: number[]; peak: number; row?: number }) {
   return (
     <>
       <span className="hd" style={{ textAlign: 'left' }}>{day}</span>
-      {cells.map((c, i) => <div key={i} className="cell" style={{ opacity: c ? 0.15 + 0.85 * (c / peak) : 0.05 }} title={`${day} ${hours[i]}:00 · ${c} booking${c === 1 ? '' : 's'}`} />)}
+      {cells.map((c, i) => <div key={i} className="cell" style={{ opacity: c ? 0.15 + 0.85 * (c / peak) : 0.05, '--i': i + row * 3 } as CSSProperties} title={`${day} ${hours[i]}:00 · ${c} booking${c === 1 ? '' : 's'}`} />)}
     </>
   )
 }

@@ -1,6 +1,11 @@
 package com.odyssey.ui
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,8 +33,9 @@ import com.odyssey.ui.res.*
 import org.jetbrains.compose.resources.Font
 
 /**
- * The "Industry" design system from the Rinse design: a blueprint look. Square corners, hairline borders,
- * registration marks on key objects, Barlow Condensed headings over Barlow, one steel-blue accent.
+ * The "Industry" design system from the Rinse design: a blueprint look, softened. Rounded corners on one scale
+ * ([Ind.rSm] controls, [Ind.rMd] rows and cards, [Ind.rLg] sheets, [Ind.pill] chips and tags), hairline borders,
+ * Barlow Condensed headings over Barlow, one steel-blue accent, and quiet motion (see Motion.kt).
  * Tokens mirror the design's styles.css so the apps and the design stay in step.
  */
 object Ind {
@@ -53,9 +59,13 @@ object Ind {
     val a800 = Color(0xFF2C455D)
     val a900 = Color(0xFF1D2D3D)
     val danger = Color(0xFFB4261F)
-}
 
-private val Square = androidx.compose.foundation.shape.RoundedCornerShape(0.dp)
+    val rXs = RoundedCornerShape(6.dp)
+    val rSm = RoundedCornerShape(10.dp)
+    val rMd = RoundedCornerShape(14.dp)
+    val rLg = RoundedCornerShape(20.dp)
+    val pill = RoundedCornerShape(percent = 50)
+}
 
 class IndustryFonts(val heading: FontFamily, val body: FontFamily)
 
@@ -82,7 +92,7 @@ fun IndustryTheme(content: @Composable () -> Unit) {
         outline = Ind.divider, outlineVariant = Ind.divider, error = Ind.danger, surfaceContainer = Ind.bg, surfaceContainerHigh = Ind.bg, surfaceContainerHighest = Ind.surface,
     )
     CompositionLocalProvider(LocalFonts provides fonts) {
-        MaterialTheme(colorScheme = scheme, typography = typography, shapes = Shapes(Square, Square, Square, Square, Square), content = content)
+        MaterialTheme(colorScheme = scheme, typography = typography, shapes = Shapes(Ind.rXs, Ind.rSm, Ind.rMd, Ind.rLg, Ind.rLg), content = content)
     }
 }
 
@@ -99,10 +109,14 @@ fun Body(text: String, modifier: Modifier = Modifier, size: Int = 14, color: Col
 @Composable
 fun Caps(text: String, modifier: Modifier = Modifier) = Body(text.uppercase(), modifier, size = 12, color = Ind.muted, spacing = 0.7.sp)
 
-/** Hairline frame with registration marks on the four corners, the signature of the system. */
-fun Modifier.blueprint(marks: Boolean = true, fill: Color = Color.Transparent, line: Color = Ind.divider): Modifier = this
-    .then(if (fill != Color.Transparent) Modifier.background(fill) else Modifier)
-    .border(1.dp, line, RectangleShape)
+/**
+ * The card frame: a rounded hairline with an optional fill, clipped so ripples and children stay inside the corners.
+ * [marks] adds the blueprint registration marks; off by default now that corners are rounded.
+ */
+fun Modifier.blueprint(marks: Boolean = false, fill: Color = Color.Transparent, line: Color = Ind.divider, shape: Shape = Ind.rMd): Modifier = this
+    .then(if (fill != Color.Transparent) Modifier.background(fill, shape) else Modifier)
+    .border(1.dp, line, shape)
+    .clip(shape)
     .drawBehind {
         if (!marks) return@drawBehind
         val arm = 5.5.dp.toPx(); val c = Ind.text.copy(alpha = 0.55f); val w = 1.dp.toPx()
@@ -111,12 +125,13 @@ fun Modifier.blueprint(marks: Boolean = true, fill: Color = Color.Transparent, l
         }
     }
 
-fun Modifier.hairline(line: Color = Ind.divider): Modifier = this.border(1.dp, line, RectangleShape)
+/** A rounded hairline frame. It clips what follows (ripples, fills, children) to the same corners. */
+fun Modifier.hairline(line: Color = Ind.divider, shape: Shape = Ind.rSm): Modifier = this.border(1.dp, line, shape).clip(shape)
 
 /** The diagonal-hatch stand-in the design uses for photos and map tiles. */
 @Composable
 fun Hatch(modifier: Modifier = Modifier, label: String? = null, base: Color = Ind.n200) {
-    Box(modifier.background(Ind.bg).clipToBounds().hairline(), contentAlignment = Alignment.Center) {
+    Box(modifier.background(Ind.bg, Ind.rSm).clipToBounds().hairline(), contentAlignment = Alignment.Center) {
         Canvas(Modifier.matchParentSize()) {
             val gap = 12.dp.toPx(); val stroke = 6.dp.toPx() * 0.7f
             var x = -size.height
@@ -137,7 +152,7 @@ fun Tag(text: String, kind: TagKind = TagKind.NEUTRAL, icon: ImageVector? = null
         TagKind.SOLID -> Ind.accent to Ind.bg
         TagKind.DANGER -> Color(0xFFFDE8E6) to Ind.danger
     }
-    Row(modifier.background(bg).then(if (kind == TagKind.OUTLINE) Modifier.border(1.dp, Ind.accent) else Modifier).padding(horizontal = 10.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    Row(modifier.background(bg, Ind.pill).then(if (kind == TagKind.OUTLINE) Modifier.border(1.dp, Ind.accent, Ind.pill) else Modifier).padding(horizontal = 10.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         if (icon != null) Icon(icon, null, Modifier.size(13.dp), tint = fg)
         Text(text, color = fg, fontSize = 11.sp, letterSpacing = 0.02.sp)
     }
@@ -146,8 +161,10 @@ fun Tag(text: String, kind: TagKind = TagKind.NEUTRAL, icon: ImageVector? = null
 /** A selectable pill used for filters, vehicle types and quick answers. Solid when selected, hairline when not. */
 @Composable
 fun Choice(text: String, selected: Boolean, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
+    val fill by animateColorAsState(if (selected) Ind.accent else Color.Transparent, Motion.quick(), label = "choice")
+    val line by animateColorAsState(if (selected) Ind.accent else Ind.divider, Motion.quick(), label = "choiceLine")
     Box(
-        modifier.then(if (selected) Modifier.background(Ind.accent) else Modifier.hairline()).clickable(enabled = enabled, onClick = onClick).padding(horizontal = 12.dp, vertical = 8.dp),
+        modifier.clip(Ind.pill).pressable(enabled = enabled, onClick = onClick).background(fill, Ind.pill).hairline(line, Ind.pill).padding(horizontal = 14.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center,
     ) { Body(text, size = 13, color = if (selected) Ind.bg else if (enabled) Ind.text else Ind.mutedSoft) }
 }
@@ -155,19 +172,25 @@ fun Choice(text: String, selected: Boolean, modifier: Modifier = Modifier, enabl
 /** Segmented control: connected options in one hairline box. */
 @Composable
 fun Seg(options: List<String>, selected: Int, modifier: Modifier = Modifier, onSelect: (Int) -> Unit) {
-    Row(modifier.hairline()) {
-        options.forEachIndexed { i, label ->
-            Box(Modifier.weight(1f).background(if (i == selected) Ind.accent else Color.Transparent).clickable { onSelect(i) }.padding(horizontal = 6.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
-                Body(label, size = 13, color = if (i == selected) Ind.bg else Ind.text, weight = if (i == selected) FontWeight.Medium else FontWeight.Normal)
+    // A sliding thumb on a soft track: the selected option's pill glides to where you tapped.
+    BoxWithConstraints(modifier.background(Ind.surface, Ind.rSm).hairline().padding(3.dp)) {
+        val w = maxWidth / options.size.coerceAtLeast(1)
+        val x by animateDpAsState(w * selected, Motion.springy(), label = "seg")
+        Box(Modifier.offset(x = x).width(w).height(34.dp).background(Ind.accent, RoundedCornerShape(8.dp)))
+        Row(Modifier.fillMaxWidth()) {
+            options.forEachIndexed { i, label ->
+                val c by animateColorAsState(if (i == selected) Ind.bg else Ind.text, Motion.quick(), label = "segText")
+                Box(Modifier.weight(1f).height(34.dp).clip(RoundedCornerShape(8.dp)).clickable { onSelect(i) }.padding(horizontal = 6.dp), contentAlignment = Alignment.Center) {
+                    Body(label, size = 13, color = c, weight = if (i == selected) FontWeight.Medium else FontWeight.Normal)
+                }
             }
-            if (i < options.lastIndex) Box(Modifier.width(1.dp).height(36.dp).background(Ind.divider))
         }
     }
 }
 
 @Composable
 fun IconBox(icon: ImageVector, modifier: Modifier = Modifier, size: Dp = 36.dp, tint: Color = Ind.text, onClick: (() -> Unit)? = null) {
-    Box(modifier.size(size).background(Ind.bg).hairline().then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier), contentAlignment = Alignment.Center) { Icon(icon, null, Modifier.size(18.dp), tint = tint) }
+    Box(modifier.size(size).background(Ind.bg, Ind.rSm).hairline().then(if (onClick != null) Modifier.pressable(onClick = onClick) else Modifier), contentAlignment = Alignment.Center) { Icon(icon, null, Modifier.size(18.dp), tint = tint) }
 }
 
 /**
@@ -176,7 +199,11 @@ fun IconBox(icon: ImageVector, modifier: Modifier = Modifier, size: Dp = 36.dp, 
  * does not look like copies; [monogram] puts initials in the corner (an outlet's, for example).
  */
 @Composable
-fun BlueprintArt(modifier: Modifier = Modifier, seed: String = "", monogram: String? = null, showCar: Boolean = true) {
+fun BlueprintArt(modifier: Modifier = Modifier, seed: String = "", monogram: String? = null, showCar: Boolean = true, animated: Boolean = false) {
+    // Looped detail for hero art only (never in lists): spray keeps falling and a soft light sweeps the drawing sheet.
+    val loop = if (animated) rememberInfiniteTransition(label = "art") else null
+    val drip = loop?.animateFloat(0f, 1f, infiniteRepeatable(tween(1500, easing = LinearEasing)), label = "drip")
+    val sweep = loop?.animateFloat(0f, 1f, infiniteRepeatable(tween(6500, easing = FastOutSlowInEasing)), label = "sweep")
     val h = seed.fold(7) { a, c -> (a * 31 + c.code) and 0x7fffffff }
     val tones = listOf(Ind.a800 to Ind.a700, Ind.a900 to Ind.a800, Ind.a700 to Ind.a600)
     val (bgTop, bgBottom) = tones[h % tones.size]
@@ -187,6 +214,10 @@ fun BlueprintArt(modifier: Modifier = Modifier, seed: String = "", monogram: Str
             val grid = Ind.a300.copy(alpha = 0.10f)
             var gx = 0f; while (gx < size.width) { drawLine(grid, Offset(gx, 0f), Offset(gx, size.height), thin); gx += gridGap }
             var gy = 0f; while (gy < size.height) { drawLine(grid, Offset(0f, gy), Offset(size.width, gy), thin); gy += gridGap }
+            sweep?.value?.let { v ->
+                val band = 90.dp.toPx(); val x = -band + v * (size.width + band * 2)
+                drawRect(androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(Color.Transparent, Ind.a300.copy(alpha = 0.10f), Color.Transparent), x - band / 2, x + band / 2), Offset(x - band / 2, 0f), androidx.compose.ui.geometry.Size(band, size.height))
+            }
             if (!showCar) return@Canvas
             // Car box: about 62% of the width, kept inside the height.
             val cw = minOf(size.width * 0.62f, size.height * 1.9f)
@@ -225,12 +256,19 @@ fun BlueprintArt(modifier: Modifier = Modifier, seed: String = "", monogram: Str
             // Spray: three short arcs falling onto the roof.
             val spray = Ind.a100.copy(alpha = 0.7f)
             listOf(0.46f, 0.55f, 0.64f).forEachIndexed { i, x ->
-                val s = Offset(left + x * cw, top + ch * (0.02f - 0.05f * (i % 2)))
-                drawLine(spray, s, Offset(s.x - ch * 0.04f, s.y + ch * 0.1f), stroke)
+                val base = Offset(left + x * cw, top + ch * (0.02f - 0.05f * (i % 2)))
+                val d = drip?.value
+                if (d == null) drawLine(spray, base, Offset(base.x - ch * 0.04f, base.y + ch * 0.1f), stroke)
+                else {
+                    val ph = (d + i / 3f) % 1f
+                    val s = Offset(base.x + ch * 0.04f * (1f - ph), base.y - ch * 0.12f + ch * 0.18f * ph)
+                    val a = (if (ph < 0.2f) ph / 0.2f else if (ph > 0.75f) (1f - ph) / 0.25f else 1f).coerceIn(0f, 1f)
+                    drawLine(spray.copy(alpha = 0.7f * a), s, Offset(s.x - ch * 0.04f, s.y + ch * 0.1f), stroke)
+                }
             }
         }
         if (monogram != null) {
-            Box(Modifier.align(Alignment.BottomEnd).padding(8.dp).border(1.dp, Ind.a300.copy(alpha = 0.6f)).padding(horizontal = 7.dp, vertical = 2.dp)) {
+            Box(Modifier.align(Alignment.BottomEnd).padding(8.dp).border(1.dp, Ind.a300.copy(alpha = 0.6f), Ind.pill).padding(horizontal = 8.dp, vertical = 2.dp)) {
                 Text(monogram, color = Ind.a100, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.08.sp)
             }
         }

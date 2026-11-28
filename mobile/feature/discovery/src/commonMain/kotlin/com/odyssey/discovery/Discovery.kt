@@ -9,6 +9,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -96,7 +97,7 @@ fun HomeScreen(
                 else if (vertical != null) Box(Modifier.clickable(onClick = onNeedVehicle)) { Tag("Add ${vertical.assetNoun.lowercase()}", TagKind.OUTLINE, Lucide.Car) }
                 IconBox(Lucide.Bell, tint = Ind.text, onClick = onOpenNotifications)
             }
-            Row(Modifier.fillMaxWidth().height(44.dp).background(Ind.surface).hairline().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxWidth().height(44.dp).background(Ind.surface, Ind.rSm).hairline().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 M3Icon(Lucide.Search, null, Modifier.size(18.dp), tint = Ind.muted)
                 Box(Modifier.weight(1f)) { Field("", s.query, vm::query, Modifier.fillMaxWidth(), placeholder = "Search washes or services", height = 40, bare = true) }
             }
@@ -185,20 +186,20 @@ private fun MapView(
             places.forEach { p ->
                 val on = p.id == selected
                 val label = formatMoney(p.priceFromMinor, money.currency) + if (on && p.nextFreeAt != null) " · ${formatTime(p.nextFreeAt!!)}" else ""
-                Box(Modifier.offset(w * x(p.lng).toFloat() - 28.dp, h * y(p.lat).toFloat() - 14.dp).clickable { onSelect(p.id) }.then(if (on) Modifier.background(Ind.accent) else Modifier.background(Ind.bg).hairline()).padding(horizontal = 8.dp, vertical = 4.dp)) {
+                Box(Modifier.offset(w * x(p.lng).toFloat() - 28.dp, h * y(p.lat).toFloat() - 14.dp).clickable { onSelect(p.id) }.then(if (on) Modifier.background(Ind.accent) else Modifier.background(Ind.bg, Ind.rSm).hairline()).padding(horizontal = 8.dp, vertical = 4.dp)) {
                     Body(label, size = if (on) 13 else 12, weight = FontWeight.SemiBold, color = if (on) Ind.bg else Ind.text)
                 }
             }
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(Modifier.weight(1f).height(44.dp).background(Ind.bg).hairline().clickable(onClick = onChangePlace).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.weight(1f).height(44.dp).background(Ind.bg, Ind.rSm).hairline().clickable(onClick = onChangePlace).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 M3Icon(Lucide.MapPin, null, Modifier.size(18.dp), tint = Ind.a700); Body(origin.label + if (origin.address.isNotBlank()) " · ${areaOf(origin.address)}" else "")
             }
             IconBox(Lucide.List, size = 44.dp, onClick = onList)
         }
         places.firstOrNull { it.id == selected }?.let { p ->
-            Row(Modifier.align(Alignment.BottomCenter).padding(start = 16.dp, end = 16.dp, bottom = 24.dp).fillMaxWidth().background(Ind.bg).blueprint().clickable { onOpen(p.id) }.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                BlueprintArt(Modifier.size(88.dp), seed = p.id, showCar = false, monogram = initialsOf(p.name))
+            Row(Modifier.align(Alignment.BottomCenter).padding(start = 16.dp, end = 16.dp, bottom = 24.dp).fillMaxWidth().background(Ind.bg, Ind.rMd).blueprint().clickable { onOpen(p.id) }.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                BlueprintArt(Modifier.size(88.dp).clip(Ind.rMd), seed = p.id, showCar = false, monogram = initialsOf(p.name))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Heading(p.name, 19)
                     Body("${p.distanceKm} km · ★ ${p.ratingAvg} (${p.ratingCount})" + (p.amenities.firstOrNull()?.let { " · $it" } ?: ""), size = 12, color = Ind.muted)
@@ -281,7 +282,7 @@ fun PlaceScreen(locationId: String, onBack: () -> Unit, onPickSlot: (itemIds: Li
 
     Column(Modifier.fillMaxSize().background(Ind.bg)) {
         Box(Modifier.fillMaxWidth().height(200.dp)) {
-            BlueprintArt(Modifier.fillMaxSize(), seed = locationId, monogram = (s.detail as? Load.Ready)?.value?.location?.name?.let(::initialsOf))
+            BlueprintArt(Modifier.fillMaxSize(), animated = true, seed = locationId, monogram = (s.detail as? Load.Ready)?.value?.location?.name?.let(::initialsOf))
             Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 IconBox(Lucide.ArrowLeft, onClick = onBack)
                 IconBox(Lucide.Heart, tint = if (isFav) Ind.danger else Ind.text, onClick = {
@@ -321,7 +322,7 @@ fun PlaceScreen(locationId: String, onBack: () -> Unit, onPickSlot: (itemIds: Li
                                 if (item.description.isNotBlank()) Body(item.description, size = 12, color = Ind.muted)
                                 Row { Body(formatMoney(item.prices[s.variantKey], tenant.money.currency), weight = FontWeight.SemiBold); Body(" · ${item.durationMinutes} min", size = 12, color = Ind.muted) }
                             }
-                            if (on) Row(Modifier.height(36.dp).background(Ind.a100).hairline(Ind.accent).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) { M3Icon(Lucide.Check, null, Modifier.size(14.dp), tint = Ind.a800); Body("Added", size = 13, color = Ind.a800, weight = FontWeight.Medium) }
+                            if (on) Row(Modifier.height(36.dp).background(Ind.a100, Ind.rSm).hairline(Ind.accent).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) { M3Icon(Lucide.Check, null, Modifier.size(14.dp), tint = Ind.a800); Body("Added", size = 13, color = Ind.a800, weight = FontWeight.Medium) }
                             else Row(Modifier.height(36.dp).hairline().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) { M3Icon(Lucide.Plus, null, Modifier.size(14.dp)); Body("Add", size = 13, weight = FontWeight.Medium) }
                         }
                     }

@@ -1,12 +1,15 @@
 /* Odyssey design system ("Industry", the Rinse design): tokens first, so a tenant can re-theme by overriding variables.
-   Blueprint look: square corners, hairline borders, Barlow Condensed headings, one steel-blue accent. */
+   Blueprint look softened: rounded corners on a fixed scale, hairline borders, Barlow Condensed headings, one steel-blue accent,
+   and quiet motion (entrances, hover lift, a few slow loops) that switches off for people who ask for reduced motion. */
 :root {
   --c-bg: #f2f2f3; --c-surface: #ffffff; --c-surface-2: #f7f7f8; --c-border: rgba(29, 31, 32, .14); --c-border-strong: rgba(29, 31, 32, .28);
   --c-text: #1d1f20; --c-muted: #5d5d60; --c-faint: #8a8a8e;
   --c-primary: #5980a6; --c-primary-ink: #ffffff; --c-primary-soft: #eef6ff; --c-primary-dark: #2c455d; --c-primary-line: #b5d9fd;
   --c-good: #1a7f4b; --c-good-soft: #e3f5ea; --c-warn: #9a6200; --c-warn-soft: #fdf1d8; --c-bad: #b4261f; --c-bad-soft: #fde8e6; --c-info: #416180; --c-info-soft: #eef6ff;
   --c-overlay: rgba(10, 14, 20, .5); --c-hover: rgba(29, 31, 32, .045); --c-sel: rgba(89, 128, 166, .10);
-  --radius: 0px; --gap: 16px; --shadow-pop: 0 12px 32px rgba(16, 24, 32, .16), 0 2px 6px rgba(16, 24, 32, .08);
+  --radius: 14px; --r-xs: 6px; --r-sm: 9px; --r-md: 12px; --r-lg: 18px; --r-pill: 999px; --gap: 16px;
+  --ease-out: cubic-bezier(.2, .8, .2, 1); --ease-spring: cubic-bezier(.34, 1.56, .64, 1);
+  --shadow-card: 0 1px 2px rgba(16, 24, 32, .04), 0 1px 1px rgba(16, 24, 32, .03); --shadow-lift: 0 8px 22px rgba(16, 24, 32, .09), 0 2px 5px rgba(16, 24, 32, .05); --shadow-pop: 0 12px 32px rgba(16, 24, 32, .16), 0 2px 6px rgba(16, 24, 32, .08);
   --font: 'Barlow', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; --font-head: 'Barlow Condensed', 'Barlow', system-ui, sans-serif;
   --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --sidebar-w: 248px; --topbar-h: 56px;
@@ -19,6 +22,7 @@
   --c-good: #5ad08f; --c-good-soft: #12301f; --c-warn: #f0b84d; --c-warn-soft: #33270d; --c-bad: #ff8a80; --c-bad-soft: #3a1714; --c-info: #a9c9e8; --c-info-soft: #1a2836;
   --c-overlay: rgba(0, 0, 0, .6); --c-hover: rgba(238, 241, 245, .05); --c-sel: rgba(116, 157, 196, .16);
   --shadow-pop: 0 16px 40px rgba(0, 0, 0, .5), 0 2px 6px rgba(0, 0, 0, .4);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, .3); --shadow-lift: 0 10px 26px rgba(0, 0, 0, .45), 0 2px 6px rgba(0, 0, 0, .3);
   color-scheme: dark;
 }
 
@@ -353,3 +357,101 @@ button.link:hover { color: var(--c-text); }
 .promo-row.ended { opacity: .6; }
 @media (max-width: 720px) { .promo-row { grid-template-columns: 1fr; } }
 .promo-platform { margin-top: 20px; }
+
+
+/* =====================================================================================================================
+   Rounded corners. One scale: --r-xs (tags, counts) · --r-sm (controls) · --r-md (rows, menus, small panels)
+   · --r-lg / --radius (cards, dialogs) · --r-pill (chips, toggles, dots). Joined controls round only their outer ends.
+   ===================================================================================================================== */
+.card, .kpis, .modal, .palette .box, .booking-card, .lockcard, .auth .form, .sched { border-radius: var(--radius); }
+.card.flush, .kpis, .sched { overflow: hidden; }
+.drawer { border-radius: var(--r-lg) 0 0 var(--r-lg); }
+.btn, input, select, textarea, .searchbtn, .iconbtn, .slot, .tabs, .avatar, .brand .mark, .empty .glyph, .menu button.item, .palette li, .nav a, .usermenu > button { border-radius: var(--r-sm); }
+.menu, .toast, .savebar, .alert, .promo-preview, .sched-booking { border-radius: var(--r-md); }
+.chart .tip, .heat .cell { border-radius: var(--r-xs); }
+.badge, .chip, .nav a .count, kbd, .env, .delta { border-radius: var(--r-pill); }
+.tabs { padding: 3px; gap: 3px; border-color: var(--c-border); background: var(--c-surface-2); }
+.tabs button { border-right: 0; border-radius: calc(var(--r-sm) - 3px); height: 30px; transition: background .2s var(--ease-out), color .2s, box-shadow .2s; }
+.tabs button.on { box-shadow: 0 1px 3px rgba(16, 24, 32, .18); }
+.prefix > span { border-radius: var(--r-sm) 0 0 var(--r-sm); } .prefix > input { border-radius: 0 var(--r-sm) var(--r-sm) 0; }
+.suffix > span { border-radius: 0 var(--r-sm) var(--r-sm) 0; } .suffix > input { border-radius: var(--r-sm) 0 0 var(--r-sm); }
+.nav a { border-left: 0; margin: 1px 0; }
+.nav a.active { box-shadow: inset 3px 0 0 var(--c-primary); }
+input.toggle, input.toggle::after { border-radius: var(--r-pill); }
+input[type='checkbox']:not(.toggle) { border-radius: 4px; }
+.otp input { border-radius: var(--r-md); }
+.alert, .promo-preview { border-left-width: 0; box-shadow: inset 3px 0 0 currentColor; }
+.promo-preview { box-shadow: inset 3px 0 0 var(--c-primary); }
+.booking-card { border-left-width: 1px; position: relative; overflow: hidden; }
+.booking-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--c-border-strong); }
+.booking-card.needs::before { background: var(--c-warn); } .booking-card.active::before { background: var(--c-primary); }
+.booking-card.done::before { background: var(--c-good); } .booking-card.off::before { background: var(--c-bad); }
+.card, .kpis, .booking-card { box-shadow: var(--shadow-card); }
+.modal, .palette .box { overflow: hidden; }
+
+/* =====================================================================================================================
+   Motion. Entrances are short (≤ 450 ms) and run once; loops are slow (≥ 2.4 s) and only on small things that carry
+   meaning (live, waiting, now). Everything here stops under prefers-reduced-motion.
+   ===================================================================================================================== */
+@keyframes enter { from { opacity: 0; transform: translateY(6px); } }
+@keyframes pop { from { opacity: 0; transform: scale(.96) translateY(6px); } }
+@keyframes grow { from { transform: scaleY(0); } }
+@keyframes cellin { from { opacity: 0; transform: scale(.6); } }
+@keyframes breathe { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--c-bad) 45%, transparent); } 50% { box-shadow: 0 0 0 4px transparent; } }
+@keyframes glint { 0%, 78% { transform: translateX(-130%) skewX(-18deg); } 100% { transform: translateX(230%) skewX(-18deg); } }
+@keyframes drip { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+@keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+@keyframes needs { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@keyframes nowline { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--c-bad) 35%, transparent); } 50% { box-shadow: 0 0 8px 1px color-mix(in srgb, var(--c-bad) 35%, transparent); } }
+@keyframes trace { from { stroke-dashoffset: 1200; } to { stroke-dashoffset: 0; } }
+@keyframes sheen { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+/* Pages: the header and the first blocks rise in, one after another, each time a page opens. */
+.main > * { animation: enter .38s var(--ease-out) both; }
+.main > *:nth-child(2) { animation-delay: 40ms; } .main > *:nth-child(3) { animation-delay: 80ms; } .main > *:nth-child(4) { animation-delay: 120ms; }
+.main > *:nth-child(5) { animation-delay: 160ms; } .main > *:nth-child(n+6) { animation-delay: 200ms; }
+.kpis > div { animation: enter .4s var(--ease-out) both; }
+.kpis > div:nth-child(2) { animation-delay: 60ms; } .kpis > div:nth-child(3) { animation-delay: 120ms; } .kpis > div:nth-child(4) { animation-delay: 180ms; } .kpis > div:nth-child(n+5) { animation-delay: 240ms; }
+.booking-card, .promo-row { animation: enter .35s var(--ease-out) both; }
+.modal, .palette .box { animation: pop .22s var(--ease-out); }
+.menu { animation: pop .16s var(--ease-out); transform-origin: top right; }
+.toast, .savebar { animation: pop .24s var(--ease-spring); }
+
+/* Charts draw themselves: bars grow from the baseline, heat-map cells fade in in a wave. */
+.chart .bar { transform-box: fill-box; transform-origin: bottom; animation: grow .6s var(--ease-out) both; animation-delay: calc(var(--i, 0) * 28ms); }
+.heat .cell { animation: cellin .4s var(--ease-out) both; animation-delay: calc(var(--i, 0) * 6ms); transition: transform .15s var(--ease-out); }
+.heat .cell:hover { transform: scale(1.18); }
+
+/* Touch feedback: things you can press lift a little on hover and settle when pressed. */
+.btn { transition: background .15s, border-color .15s, filter .15s, transform .12s var(--ease-out), box-shadow .2s; }
+.btn:active:not(:disabled) { transform: translateY(1px) scale(.98); }
+.btn.primary:hover:not(:disabled) { box-shadow: 0 4px 14px color-mix(in srgb, var(--c-primary) 35%, transparent); }
+.btn.primary { position: relative; overflow: hidden; }
+.btn.primary::after { content: ''; position: absolute; inset: 0; width: 40%; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .28), transparent); transform: translateX(-130%) skewX(-18deg); pointer-events: none; }
+.btn.primary:hover:not(:disabled)::after { animation: glint .9s var(--ease-out); }
+.chip, .iconbtn, .searchbtn, .slot, .nav a, .sched-booking, .booking-card, .card, .tabs button, .menu button.item, .palette li { transition: background .15s, border-color .15s, color .15s, box-shadow .2s var(--ease-out), transform .2s var(--ease-out); }
+.booking-card:hover, .slot:hover:not(.full):not(.past), .sched-booking:hover { transform: translateY(-1px); box-shadow: var(--shadow-lift); }
+.card:has(> a:only-child):hover, a.card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lift); }
+.chip:active, .iconbtn:active, .tabs button:active { transform: scale(.96); }
+.nav a .icon { transition: transform .2s var(--ease-spring); } .nav a:hover .icon { transform: translateX(2px); }
+input.toggle::after { transition: transform .28s var(--ease-spring); box-shadow: 0 1px 3px rgba(0, 0, 0, .25); }
+input, select, textarea { transition: border-color .15s, box-shadow .2s var(--ease-out); }
+input:focus, select:focus, textarea:focus { box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-primary) 22%, transparent); }
+.table tbody tr td { transition: background .15s; }
+
+/* Slow loops, only where they mean something. */
+.brand .mark { position: relative; overflow: hidden; }
+.brand .mark::after { content: ''; position: absolute; inset: -20% auto -20% 0; width: 45%; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .35), transparent); animation: glint 7s ease-in-out infinite 1.5s; }
+.brand .mark .icon { animation: drip 3.2s ease-in-out infinite; }
+.nav a .count:not(.neutral) { animation: breathe 2.6s ease-in-out infinite; }
+.booking-card.needs::before { animation: needs 2.4s ease-in-out infinite; }
+.sched-now { animation: nowline 3s ease-in-out infinite; }
+.empty .glyph { animation: float 4s ease-in-out infinite; }
+.env .dot { animation: needs 2.8s ease-in-out infinite; }
+.auth .art svg.drawing * { stroke-dasharray: 1200; animation: trace 3.2s var(--ease-out) both; }
+.skel { border-radius: var(--r-xs); background: linear-gradient(90deg, var(--c-surface-2) 25%, color-mix(in srgb, var(--c-primary) 10%, var(--c-surface-2)) 50%, var(--c-surface-2) 75%); background-size: 200% 100%; animation: sheen 1.6s ease-in-out infinite; }
+.page-loading { animation: enter .3s var(--ease-out) .12s both; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; animation-delay: 0ms !important; transition-duration: .01ms !important; }
+}

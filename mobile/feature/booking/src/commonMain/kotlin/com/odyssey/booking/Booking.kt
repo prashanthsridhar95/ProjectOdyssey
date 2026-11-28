@@ -100,7 +100,7 @@ fun SlotPickerScreen(
             days.forEach { d ->
                 val on = s.date == d
                 val dt = LocalDateParts.of(d)
-                Column(Modifier.width(60.dp).then(if (on) Modifier.background(Ind.accent) else Modifier.hairline()).clickable { vm.day(d) }.padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(Modifier.width(60.dp).then(if (on) Modifier.background(Ind.accent, Ind.rSm) else Modifier.hairline()).clickable { vm.day(d) }.padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Body(if (d == days.first()) "TODAY" else dt.weekday, size = 11, color = if (on) Ind.bg else Ind.muted)
                     Heading(dt.day, 22, color = if (on) Ind.bg else Ind.text)
                 }
@@ -108,7 +108,7 @@ fun SlotPickerScreen(
         }
         Remote(s.slots, vm::retry) { all ->
             if (all.none { it.bookable }) EmptyNote("No free slots on this day. Try another day.")
-            if (deals.isNotEmpty()) Row(Modifier.fillMaxWidth().background(Ind.a100).padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (deals.isNotEmpty()) Row(Modifier.fillMaxWidth().enterOnce().background(Ind.a100, Ind.rMd).padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Icon(Lucide.Zap, null, Modifier.size(18.dp), tint = Ind.a800)
                 Body("${deals.first().deal ?: "Deal"} at ${deals.size} time${if (deals.size == 1) "" else "s"} today. Look for the marked slots.".let { if (s.date != days.first()) it.replace(" today", " this day") else it }, size = 13, color = Ind.a800, modifier = Modifier.weight(1f))
             }
@@ -135,7 +135,7 @@ private fun SlotCell(sl: Slot, selected: Boolean, end: String?, modifier: Modifi
             Body(clock(sl.startsAt), size = 15, color = Ind.bg, weight = FontWeight.SemiBold); if (end != null) Body("to ${clock(end)}", size = 10, color = Ind.bg)
         }
         !sl.bookable -> Box(base.hairline(), Alignment.Center) { Body(clock(sl.startsAt), size = 15, color = Ind.mutedSoft, strike = true) }
-        sl.discounted -> Column(base.background(Ind.a100).hairline(Ind.accent).clickable(onClick = onClick).semantics { contentDescription = "${formatTime(sl.startsAt)}, ${sl.deal ?: "deal"}" }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        sl.discounted -> Column(base.background(Ind.a100, Ind.rSm).hairline(Ind.accent).clickable(onClick = onClick).semantics { contentDescription = "${formatTime(sl.startsAt)}, ${sl.deal ?: "deal"}" }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Body(clock(sl.startsAt), size = 15, color = Ind.a800, weight = FontWeight.Medium); Body(sl.deal ?: "Deal", size = 10, color = Ind.a800, weight = FontWeight.SemiBold)
         }
         else -> Column(base.hairline().clickable(onClick = onClick), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -461,7 +461,7 @@ private fun ActiveBooking(o: Order, detail: OrderDetail?, tenant: TenantConfig, 
     Column(Modifier.fillMaxWidth().padding(6.dp).blueprint().clickable { onOpen(o.id) }.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) { Tag(o.statusLabel, TagKind.ACCENT); Spacer(Modifier.weight(1f)); Body(displayCode(o.code), size = 12, color = Ind.muted) }
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) { Heading(o.locationName, 20); Body("${formatDay(o.startsAt)}, ${formatTime(o.startsAt)} · ${o.lines.joinToString { it.name }}", size = 13, color = Ind.muted) }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) { steps.forEach { Box(Modifier.weight(1f).height(4.dp).background(if (it.done || it.current) Ind.accent else Ind.n300)) } }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) { steps.forEach { Box(Modifier.weight(1f).height(4.dp).background(if (it.done || it.current) Ind.accent else Ind.n300, Ind.pill).then(if (it.current) Modifier.pulsing(0.5f, 2000) else Modifier)) } }
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             steps.forEach { st ->
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {

@@ -7,6 +7,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewModelScope
@@ -93,14 +94,14 @@ fun LoginScreen(
                 Heading(title, 36)
                 Body(subtitle, color = Ind.muted)
             }
-            if (showHero) BlueprintArt(Modifier.fillMaxWidth().height(if (s.codeSent) 120.dp else 200.dp), seed = brand, showCar = true)
+            if (showHero) BlueprintArt(Modifier.fillMaxWidth().height(if (s.codeSent) 120.dp else 200.dp).clip(Ind.rLg), seed = brand, showCar = true, animated = true)
             if (modes.size > 1) {
                 Seg(listOf("Owner", "Counter staff"), if (s.mode == LoginMode.OTP) 0 else 1) { vm.setMode(if (it == 0) LoginMode.OTP else LoginMode.STAFF_PIN) }
             }
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Body("Mobile number", size = 12, color = Ind.muted)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(Modifier.width(72.dp).height(44.dp).background(Ind.surface).hairline(), contentAlignment = Alignment.Center) { Body("+91", size = 16) }
+                    Box(Modifier.width(72.dp).height(44.dp).background(Ind.surface, Ind.rSm).hairline(), contentAlignment = Alignment.Center) { Body("+91", size = 16) }
                     Field("", s.phone, vm::phone, Modifier.weight(1f), keyboard = KeyboardType.Phone, enabled = !s.codeSent, placeholder = "98450 21734")
                 }
                 if (s.codeSent) GhostButton("Change number", vm::changeNumber)
