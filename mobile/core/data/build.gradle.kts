@@ -14,6 +14,7 @@ kotlin {
         }
         androidMain.dependencies { implementation(libs.ktor.client.okhttp) }
         jvmMain.dependencies { implementation(libs.ktor.client.okhttp) }
+        wasmJsMain.dependencies { implementation(libs.ktor.client.js) }
         jvmTest.dependencies {
             implementation(libs.ktor.client.mock)
             implementation(libs.coroutines.test)

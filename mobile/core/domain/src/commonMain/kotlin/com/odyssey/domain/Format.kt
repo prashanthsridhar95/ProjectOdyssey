@@ -10,7 +10,8 @@ import kotlin.time.Instant
 
 /** Pure formatting helpers shared by every app. No platform APIs. */
 
-val IST: TimeZone = TimeZone.of("Asia/Kolkata")
+/** India has no daylight saving, so a fixed +05:30 offset is exact, and it needs no time zone database (the browser has none). */
+val IST: TimeZone = kotlinx.datetime.FixedOffsetTimeZone(kotlinx.datetime.UtcOffset(hours = 5, minutes = 30))
 
 /** 29900 -> "₹299", 29950 -> "₹299.50". Amounts are minor units. */
 fun formatMoney(minor: Long?, currency: String = "INR"): String {

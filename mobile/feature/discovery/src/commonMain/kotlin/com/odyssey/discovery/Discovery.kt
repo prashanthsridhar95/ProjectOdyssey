@@ -118,7 +118,14 @@ fun HomeScreen(
                     EmptyNote(if (s.filters.activeCount > 0) "Nothing matches these filters. Try clearing one." else "No ${cfg.labels.provider.lowercase()}s within 30 km of here.")
                     cfg.serviceAreas.forEach { a -> Box(Modifier.fillMaxWidth(), Alignment.Center) { SecondaryButton("Look in ${a.name}", { customer.place = PlaceSel(a.name, "", a.lat, a.lng) }) } }
                 }
-                places.forEach { PlaceCard(it, onClick = { onOpen(it.id) }) }
+                if (LocalWindow.current.isWide) {
+                    places.chunked(2).forEach { pair ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            pair.forEach { Box(Modifier.weight(1f)) { PlaceCard(it, onClick = { onOpen(it.id) }) } }
+                            if (pair.size == 1) Spacer(Modifier.weight(1f))
+                        }
+                    }
+                } else places.forEach { PlaceCard(it, onClick = { onOpen(it.id) }) }
             }
             Spacer(Modifier.height(12.dp))
         }

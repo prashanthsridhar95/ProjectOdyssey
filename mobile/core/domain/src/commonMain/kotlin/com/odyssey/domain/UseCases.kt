@@ -77,7 +77,8 @@ fun groupSlots(slots: List<Slot>): Map<DayPart, List<Slot>> {
         val hour = s.startsAt.toInstantOrNull()?.toLocalDateTime(IST)?.hour ?: 0
         return when { hour < 12 -> DayPart.MORNING; hour < 17 -> DayPart.AFTERNOON; else -> DayPart.EVENING }
     }
-    return slots.groupBy(::part).toSortedMap(compareBy { it.ordinal })
+    val byPart = slots.groupBy(::part)
+    return DayPart.entries.filter { it in byPart }.associateWith { byPart.getValue(it) }   // morning, afternoon, evening in order
 }
 
 @kotlinx.serialization.Serializable

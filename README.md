@@ -32,10 +32,19 @@ Mobile (Android emulator reaches the host at `10.0.2.2`):
 ```bash
 cd mobile
 ./gradlew :app:customer:installDebug :app:vendor:installDebug :app:admin:installDebug
-# real device or other host:  -Podyssey.apiUrl=http://<your-ip>:8080
+# the apps call https://carwashapis.prashanthsridhar.com by default;
+# local backend from the emulator:  -Podyssey.apiUrl=http://10.0.2.2:8080
 ```
 
 Web without Docker: `cd web && npm install && npm run dev:admin` (and `dev:vendor`). Backend without Docker: `cd backend && ./gradlew :server:run` (in-memory H2, same migrations and seed).
+
+### Public API through Cloudflare
+
+`infra/cloudflared/run.sh` publishes the local backend at https://carwashapis.prashanthsridhar.com using the Cloudflare tunnel `carwash` (credentials stay in `~/.cloudflared`). Put `JWT_SECRET`, `DEV_OTP` and `CORS_ORIGINS` in an untracked `.env` before exposing it: the defaults in `docker-compose.yml` are for localhost only. The dev identity provider is still a stand-in, so treat the public API as a demo until the IAM adapter replaces it.
+
+### Customer app in a browser
+
+The customer app also runs as a web app: the same Compose screens compiled to WebAssembly (`mobile/app/customer-web`, shared screens in `mobile/feature/customerapp`). Build it with `scripts/build-customer-web.sh` (first run downloads Node.js), then `docker compose up -d customer-web` serves it on http://localhost:5175. The API address is read at load time from `config.js`, so one build works anywhere. The vendor and admin apps already have React web versions on :5174 and :5173. Needs a modern browser (Chrome, Edge, Firefox, Safari 18.2+); text boxes open only after a real tap or click; browser notifications and QR scanning are not available on web. Publish it by adding an ingress rule and DNS record for `carwash-app.prashanthsridhar.com` (rule already in `infra/cloudflared/config.yml`).
 
 ## Layout
 

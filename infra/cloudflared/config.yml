@@ -1,0 +1,17 @@
+# Cloudflare Tunnel for the Odyssey API. Run with: infra/cloudflared/run.sh
+# The tunnel "carwash" and the DNS record were created with:
+#   cloudflared tunnel create carwash
+#   cloudflared tunnel route dns --overwrite-dns <tunnel-id> carwashapis.prashanthsridhar.com
+# The credentials file lives in ~/.cloudflared and is never committed.
+tunnel: 94eb86f8-06d5-4169-9160-a5dc088b1de3
+credentials-file: /Users/prashanthsridhar/.cloudflared/94eb86f8-06d5-4169-9160-a5dc088b1de3.json
+ingress:
+  - hostname: carwashapis.prashanthsridhar.com
+    service: http://127.0.0.1:8080
+  - hostname: carwash.prashanthsridhar.com        # vendor dashboard
+    service: http://127.0.0.1:5174
+  - hostname: carwash-admin.prashanthsridhar.com  # admin panel
+    service: http://[::1]:5173   # Docker publishes on IPv6; 127.0.0.1:5173 belongs to another local app
+  - hostname: carwash-app.prashanthsridhar.com    # customer web app
+    service: http://127.0.0.1:5175
+  - service: http_status:404

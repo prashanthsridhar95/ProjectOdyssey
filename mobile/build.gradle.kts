@@ -2,6 +2,7 @@ import com.android.build.api.dsl.ApplicationExtension
 import com.android.build.api.dsl.LibraryExtension
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
+import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform) apply false
@@ -14,9 +15,16 @@ plugins {
 }
 
 // Conventions shared by every module, so each module's build file only lists what is special about it.
+// Modules the customer web app (Kotlin/Wasm) is built from.
+val webModules = setOf(":core:domain", ":core:data", ":core:ui", ":feature:auth", ":feature:discovery", ":feature:booking", ":vertical:carwash", ":feature:customerapp")
+
 subprojects {
     plugins.withId("org.jetbrains.kotlin.multiplatform") {
+        if (project.path == ":app:customer-web") return@withId   // web-only app: configured in its own build file
         extensions.configure<KotlinMultiplatformExtension> {
+            if (project.path in webModules) {
+                @OptIn(ExperimentalWasmDsl::class) wasmJs { browser() }
+            }
             androidTarget { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }
             jvm()
             // iOS targets are opt-in: ./gradlew build -Podyssey.ios=true (needs Xcode and the Kotlin/Native toolchain)
@@ -48,3 +56,6 @@ subprojects {
         }
     }
 }
+
+// Browser tests need a headless Chrome; the unit tests that matter run on the JVM.
+subprojects { tasks.matching { it.name.startsWith("wasmJs") && it.name.endsWith("Test") }.configureEach { enabled = false } }

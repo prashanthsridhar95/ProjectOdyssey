@@ -9,6 +9,7 @@ kotlin {
     sourceSets {
         androidMain.dependencies { implementation("com.google.zxing:core:3.5.3") }
         jvmMain.dependencies { implementation("com.google.zxing:core:3.5.3") }
+        wasmJsMain.dependencies { implementation("io.github.g0dkar:qrcode-kotlin:4.5.0") }
         commonMain.dependencies {
             api(project(":core:data"))
             api(compose.runtime)

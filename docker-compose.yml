@@ -24,17 +24,27 @@ services:
       DB_URL: jdbc:postgresql://db:5432/odyssey
       DB_USER: odyssey
       DB_PASSWORD: odyssey
-      JWT_SECRET: local-poc-secret-change-before-any-real-use-please
-      DEV_OTP: "123456"          # the dev identity provider accepts this code; replace with the IAM adapter
+      JWT_SECRET: ${JWT_SECRET:-local-poc-secret-change-before-any-real-use-please}
+      DEV_OTP: "${DEV_OTP:-123456}"   # the dev identity provider accepts this code; replace with the IAM adapter
       SEED: "true"               # loads demo vendors on first start
       DEFAULT_TENANT: carwash
-      CORS_ORIGINS: "*"
+      CORS_ORIGINS: "${CORS_ORIGINS:-*}"
     ports: ["8080:8080"]
 
   web:
-    build: ./web
+    build:
+      context: ./web
+      args:
+        VITE_API_URL: ${PUBLIC_API_URL:-https://carwashapis.prashanthsridhar.com}   # set PUBLIC_API_URL=http://localhost:8080 to stay local
     depends_on: [backend]
     ports: ["5173:5173", "5174:5174"]   # 5173 admin panel, 5174 vendor dashboard
+
+  customer-web:    # the customer app in a browser; build the bundle first: scripts/build-customer-web.sh
+    image: nginx:1.27-alpine
+    volumes:
+      - ./mobile/app/customer-web/build/dist/wasmJs/productionExecutable:/usr/share/nginx/html:ro
+      - ./infra/customer-web/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports: ["5175:5175"]
 
 volumes:
   dbdata:
