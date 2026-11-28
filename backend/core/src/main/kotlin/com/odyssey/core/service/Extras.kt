@@ -4,24 +4,6 @@ import com.odyssey.core.domain.*
 import com.odyssey.core.ports.*
 import java.time.Instant
 
-/** Validates a promo code against a basket and works out the discount. */
-class PromoService(private val r: Repos, private val clock: Clock) {
-    data class Applied(val code: String, val discountMinor: Long, val description: String)
-
-    fun apply(tenant: Tenant, userId: Id?, code: String, subtotalMinor: Long): Applied {
-        val now = clock.now()
-        val promo = r.promos.byCode(tenant.id, code.trim().uppercase())?.takeIf { it.active } ?: throw invalid("That promo code is not valid")
-        if (promo.startsAt != null && now < promo.startsAt) throw invalid("That promo code is not active yet")
-        if (promo.expiresAt != null && now > promo.expiresAt) throw invalid("That promo code has expired")
-        if (subtotalMinor < promo.minSubtotalMinor) throw invalid("Spend at least ${promo.minSubtotalMinor / 100} to use ${promo.code}")
-        if (promo.usageLimit != null && r.orders.countPromoUses(tenant.id, promo.code, null) >= promo.usageLimit) throw invalid("That promo code has been fully used")
-        if (userId != null && r.orders.countPromoUses(tenant.id, promo.code, userId) >= promo.perUserLimit) throw invalid("You have already used ${promo.code}")
-        val raw = when (promo.kind) { PromoKind.FLAT -> promo.value; PromoKind.PERCENT -> bps(subtotalMinor, promo.value.toInt()) }
-        val discount = minOf(raw, promo.maxDiscountMinor ?: Long.MAX_VALUE, subtotalMinor)
-        return Applied(promo.code, discount, promo.description)
-    }
-}
-
 /** Stores an in-app notification and hands a push to the sender. */
 class Notifier(private val r: Repos, private val push: PushSender, private val ids: Ids, private val clock: Clock) {
     fun send(tenantId: Id, userId: Id, title: String, body: String, orderId: Id?) {

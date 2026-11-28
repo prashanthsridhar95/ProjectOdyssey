@@ -64,6 +64,7 @@ fun Application.module(ctx: AppContext) {
                 customerRoutes(ctx)
                 providerRoutes(ctx)
                 adminRoutes(ctx)
+                promotionRoutes(ctx)
             }
         }
         get("/health") { call.respond(mapOf("status" to "ok")) }

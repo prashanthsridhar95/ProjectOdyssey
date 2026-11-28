@@ -80,6 +80,18 @@ class Seeder(private val ctx: AppContext) {
         }
         r.promos.save(PromoCode(tenant.id, "FIRSTWASH", PromoKind.FLAT, 10000, null, 30000, null, null, null, 1, true, "₹100 off your first wash"))
         r.promos.save(PromoCode(tenant.id, "WEEKEND10", PromoKind.PERCENT, 1000, 15000, 0, null, null, null, 5, true, "10% off, up to ₹150"))
+        // Promotions for the demo. Kept off the first two vendors so prices in the API tests do not depend on the weekday.
+        locations.getOrNull(3)?.let { (l, p) ->
+            r.promotions.save(Promotion(ctx.ids.newId(), tenant.id, p.id, PromotionType.HAPPY_HOUR, "Afternoon happy hour", PromoKind.PERCENT, 2000, null, listOf(l.id),
+                days = listOf(java.time.DayOfWeek.MONDAY, java.time.DayOfWeek.TUESDAY, java.time.DayOfWeek.WEDNESDAY, java.time.DayOfWeek.THURSDAY),
+                startTime = LocalTime.of(14, 0), endTime = LocalTime.of(16, 0), createdBy = "${p.name} Owner", createdAt = now))
+        }
+        locations.firstOrNull()?.let { (_, p) ->
+            val launch = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata")).plusDays(40)
+            r.promotions.save(Promotion(ctx.ids.newId(), tenant.id, p.id, PromotionType.DATE_DISCOUNT, "Anniversary day", PromoKind.FLAT, 15000, null,
+                startDate = launch, endDate = launch, createdBy = "${p.name} Owner", createdAt = now))
+            r.promos.save(PromoCode(tenant.id, "SPARKLE50", PromoKind.FLAT, 5000, null, 40000, null, null, 500, 1, true, "₹50 off at ${p.name}", p.id, Funder.VENDOR, createdAt = now))
+        }
         // One vendor waiting for review so the admin approval flow has something to show.
         val pendingOwner = User(ctx.ids.newId(), tenant.id, "+919000000099", "Gleam Garage Owner", Role.PROVIDER_OWNER)
         r.users.insert(pendingOwner)

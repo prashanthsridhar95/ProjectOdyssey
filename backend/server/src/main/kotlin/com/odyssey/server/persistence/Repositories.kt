@@ -165,6 +165,7 @@ class Persistence(private val db: Database) {
 
     val orders = object : OrderRepo {
         private val lines = ListSerializer(OrderLineDto.serializer())
+        private val discountLines = ListSerializer(DiscountLineRow.serializer())
         private fun map(r: ResultRow) = Order(
             r[Orders.id], r[Orders.tenantId], r[Orders.code], r[Orders.customerId], r[Orders.customerName], r[Orders.customerPhone], r[Orders.providerId], r[Orders.locationId], r[Orders.locationName],
             r[Orders.assetLabel], r[Orders.variantKey], r[Orders.status], OrderSource.valueOf(r[Orders.origin]), at(r[Orders.startsAt]), at(r[Orders.endsAt]),
@@ -172,6 +173,8 @@ class Persistence(private val db: Database) {
             r[Orders.subtotalMinor], r[Orders.taxMinor], r[Orders.feeMinor], r[Orders.totalMinor], r[Orders.commissionBps], r[Orders.commissionMinor],
             r[Orders.holdExpiresAt]?.let(::at), r[Orders.cancellationReason], r[Orders.settled], r[Orders.payoutId], at(r[Orders.createdAt]), at(r[Orders.updatedAt]),
             r[Orders.discountMinor], r[Orders.promoCode], r[Orders.reminded], r[Orders.reschedules], r[Orders.bay],
+            discounts = json.decodeFromString(discountLines, r[Orders.discounts]).map { DiscountLine(it.kind, it.label, it.amountMinor, Funder.valueOf(it.funder), it.ref) },
+            vendorDiscountMinor = r[Orders.vendorDiscountMinor], promotionId = r[Orders.promotionId],
         )
         private fun bind(it: org.jetbrains.exposed.sql.statements.UpdateBuilder<*>, o: Order) {
             it[Orders.id] = o.id; it[Orders.tenantId] = o.tenantId; it[Orders.code] = o.code; it[Orders.customerId] = o.customerId; it[Orders.customerName] = o.customerName
@@ -184,6 +187,8 @@ class Persistence(private val db: Database) {
             it[Orders.cancellationReason] = o.cancellationReason; it[Orders.settled] = o.settled; it[Orders.payoutId] = o.payoutId
             it[Orders.createdAt] = ms(o.createdAt); it[Orders.updatedAt] = ms(o.updatedAt)
             it[Orders.discountMinor] = o.discountMinor; it[Orders.promoCode] = o.promoCode; it[Orders.reminded] = o.reminded; it[Orders.reschedules] = o.reschedules; it[Orders.bay] = o.bay
+            it[Orders.discounts] = json.encodeToString(discountLines, o.discounts.map { d -> DiscountLineRow(d.kind, d.label, d.amountMinor, d.funder.name, d.ref) })
+            it[Orders.vendorDiscountMinor] = o.vendorDiscountMinor; it[Orders.promotionId] = o.promotionId
         }
         override fun byId(id: Id) = tx { Orders.selectAll().where { Orders.id eq id }.singleOrNull()?.let(::map) }
         override fun insert(order: Order) = tx { Orders.insert { bind(it, order) }; Unit }
@@ -233,6 +238,10 @@ class Persistence(private val db: Database) {
             Orders.selectAll().where { (Orders.status inList states) and (Orders.reminded eq false) and (Orders.startsAt greaterEq ms(from)) and (Orders.startsAt less ms(to)) }.map(::map)
         }
         override fun staleIn(state: String, before: Instant) = tx { Orders.selectAll().where { (Orders.status eq state) and (Orders.updatedAt less ms(before)) }.map(::map) }
+        override fun discounted(tenantId: Id) = tx {
+            val dead = listOf("PENDING_PAYMENT", "EXPIRED", "CANCELLED", "REJECTED")
+            Orders.selectAll().where { (Orders.tenantId eq tenantId) and (Orders.discountMinor greater 0L) and (Orders.status notInList dead) }.map(::map)
+        }
         override fun paidOrders(tenantId: Id, from: Instant, to: Instant, unpaidStates: List<String>) = tx {
             Orders.selectAll().where { (Orders.tenantId eq tenantId) and (Orders.createdAt greaterEq ms(from)) and (Orders.createdAt less ms(to)) and (Orders.status notInList unpaidStates) }.map(::map)
         }
@@ -316,16 +325,75 @@ class Persistence(private val db: Database) {
 
 
     val promos = object : PromoRepo {
-        private fun map(r: ResultRow) = PromoCode(r[PromoCodes.tenantId], r[PromoCodes.code], PromoKind.valueOf(r[PromoCodes.kind]), r[PromoCodes.discountValue], r[PromoCodes.maxDiscountMinor], r[PromoCodes.minSubtotalMinor], r[PromoCodes.startsAt]?.let(::at), r[PromoCodes.expiresAt]?.let(::at), r[PromoCodes.usageLimit], r[PromoCodes.perUserLimit], r[PromoCodes.active], r[PromoCodes.description])
+        private fun map(r: ResultRow) = PromoCode(
+            r[PromoCodes.tenantId], r[PromoCodes.code], PromoKind.valueOf(r[PromoCodes.kind]), r[PromoCodes.discountValue], r[PromoCodes.maxDiscountMinor], r[PromoCodes.minSubtotalMinor],
+            r[PromoCodes.startsAt]?.let(::at), r[PromoCodes.expiresAt]?.let(::at), r[PromoCodes.usageLimit], r[PromoCodes.perUserLimit], r[PromoCodes.active], r[PromoCodes.description],
+            r[PromoCodes.providerId], Funder.valueOf(r[PromoCodes.fundedBy]), r[PromoCodes.ownerUserId], r[PromoCodes.origin], r[PromoCodes.createdAt]?.let(::at),
+        )
         override fun byCode(tenantId: Id, code: String) = tx { PromoCodes.selectAll().where { (PromoCodes.tenantId eq tenantId) and (PromoCodes.code eq code) }.singleOrNull()?.let(::map) }
         override fun list(tenantId: Id) = tx { PromoCodes.selectAll().where { PromoCodes.tenantId eq tenantId }.map(::map) }
+        override fun byOwner(userId: Id) = tx { PromoCodes.selectAll().where { PromoCodes.ownerUserId eq userId }.orderBy(PromoCodes.createdAt, SortOrder.DESC).map(::map) }
         override fun save(promo: PromoCode) = tx {
             PromoCodes.deleteWhere { (PromoCodes.tenantId eq promo.tenantId) and (PromoCodes.code eq promo.code) }
             PromoCodes.insert {
                 it[tenantId] = promo.tenantId; it[code] = promo.code; it[kind] = promo.kind.name; it[discountValue] = promo.value; it[maxDiscountMinor] = promo.maxDiscountMinor; it[minSubtotalMinor] = promo.minSubtotalMinor
-                it[startsAt] = promo.startsAt?.let(::ms); it[expiresAt] = promo.expiresAt?.let(::ms); it[usageLimit] = promo.usageLimit; it[perUserLimit] = promo.perUserLimit; it[active] = promo.active; it[description] = promo.description
-            }; Unit
+                it[startsAt] = promo.startsAt?.let(::ms); it[expiresAt] = promo.expiresAt?.let(::ms); it[usageLimit] = promo.usageLimit; it[perUserLimit] = promo.perUserLimit; it[active] = promo.active; it[description] = promo.description.take(200)
+                it[providerId] = promo.providerId; it[fundedBy] = promo.fundedBy.name; it[ownerUserId] = promo.ownerUserId; it[origin] = promo.source; it[createdAt] = promo.createdAt?.let(::ms)
+            }
+            Unit
         }
+    }
+
+    val promotions = object : PromotionRepo {
+        private val strings = ListSerializer(String.serializer())
+        private fun map(r: ResultRow) = Promotion(
+            r[Promotions.id], r[Promotions.tenantId], r[Promotions.providerId], PromotionType.valueOf(r[Promotions.type]), r[Promotions.name],
+            PromoKind.valueOf(r[Promotions.kind]), r[Promotions.discountValue], r[Promotions.maxDiscountMinor],
+            json.decodeFromString(strings, r[Promotions.locationIds]), json.decodeFromString(strings, r[Promotions.services]), json.decodeFromString(strings, r[Promotions.variantKeys]),
+            r[Promotions.days].split(",").filter { it.isNotBlank() }.map { java.time.DayOfWeek.valueOf(it) },
+            r[Promotions.startTime]?.let(LocalTime::parse), r[Promotions.endTime]?.let(LocalTime::parse),
+            r[Promotions.startDate]?.let(java.time.LocalDate::parse), r[Promotions.endDate]?.let(java.time.LocalDate::parse),
+            r[Promotions.active], r[Promotions.createdBy], at(r[Promotions.createdAt]), at(r[Promotions.updatedAt]),
+        )
+        override fun byId(id: Id) = tx { Promotions.selectAll().where { Promotions.id eq id }.singleOrNull()?.let(::map) }
+        override fun list(tenantId: Id) = tx { Promotions.selectAll().where { Promotions.tenantId eq tenantId }.orderBy(Promotions.createdAt, SortOrder.DESC).map(::map) }
+        override fun byProvider(providerId: Id) = tx { Promotions.selectAll().where { Promotions.providerId eq providerId }.orderBy(Promotions.createdAt, SortOrder.DESC).map(::map) }
+        override fun activeFor(tenantId: Id, providerId: Id) = tx {
+            Promotions.selectAll().where { (Promotions.tenantId eq tenantId) and (Promotions.active eq true) and (Promotions.providerId.isNull() or (Promotions.providerId eq providerId)) }.map(::map)
+        }
+        override fun save(promotion: Promotion) = tx {
+            Promotions.deleteWhere { Promotions.id eq promotion.id }
+            Promotions.insert {
+                it[id] = promotion.id; it[tenantId] = promotion.tenantId; it[providerId] = promotion.providerId; it[type] = promotion.type.name; it[name] = promotion.name.take(100)
+                it[kind] = promotion.kind.name; it[discountValue] = promotion.value; it[maxDiscountMinor] = promotion.maxDiscountMinor
+                it[locationIds] = json.encodeToString(strings, promotion.locationIds); it[services] = json.encodeToString(strings, promotion.services); it[variantKeys] = json.encodeToString(strings, promotion.variantKeys)
+                it[days] = promotion.days.joinToString(",") { d -> d.name }; it[startTime] = promotion.startTime?.toString(); it[endTime] = promotion.endTime?.toString()
+                it[startDate] = promotion.startDate?.toString(); it[endDate] = promotion.endDate?.toString()
+                it[active] = promotion.active; it[createdBy] = promotion.createdBy.take(200); it[createdAt] = ms(promotion.createdAt); it[updatedAt] = ms(promotion.updatedAt)
+            }
+            Unit
+        }
+        override fun delete(id: Id) = tx { Promotions.deleteWhere { Promotions.id eq id } > 0 }
+    }
+
+    val referrals = object : ReferralRepo {
+        private fun code(r: ResultRow) = ReferralCode(r[ReferralCodes.tenantId], r[ReferralCodes.userId], r[ReferralCodes.code], at(r[ReferralCodes.createdAt]))
+        private fun map(r: ResultRow) = Referral(
+            r[Referrals.id], r[Referrals.tenantId], r[Referrals.referrerId], r[Referrals.refereeId], r[Referrals.code], ReferralStatus.valueOf(r[Referrals.status]),
+            r[Referrals.welcomeVoucher], r[Referrals.rewardVoucher], at(r[Referrals.createdAt]), r[Referrals.rewardedAt]?.let(::at),
+        )
+        override fun codeFor(userId: Id) = tx { ReferralCodes.selectAll().where { ReferralCodes.userId eq userId }.singleOrNull()?.let(::code) }
+        override fun byCode(tenantId: Id, code: String) = tx { ReferralCodes.selectAll().where { (ReferralCodes.tenantId eq tenantId) and (ReferralCodes.code eq code) }.singleOrNull()?.let(::code) }
+        override fun saveCode(code: ReferralCode) = tx { ReferralCodes.insert { it[userId] = code.userId; it[tenantId] = code.tenantId; it[ReferralCodes.code] = code.code; it[createdAt] = ms(code.createdAt) }; Unit }
+        override fun byReferee(refereeId: Id) = tx { Referrals.selectAll().where { Referrals.refereeId eq refereeId }.singleOrNull()?.let(::map) }
+        override fun byReferrer(referrerId: Id) = tx { Referrals.selectAll().where { Referrals.referrerId eq referrerId }.orderBy(Referrals.createdAt, SortOrder.DESC).map(::map) }
+        override fun list(tenantId: Id) = tx { Referrals.selectAll().where { Referrals.tenantId eq tenantId }.orderBy(Referrals.createdAt, SortOrder.DESC).map(::map) }
+        private fun bind(it: org.jetbrains.exposed.sql.statements.UpdateBuilder<*>, x: Referral) {
+            it[Referrals.id] = x.id; it[Referrals.tenantId] = x.tenantId; it[Referrals.referrerId] = x.referrerId; it[Referrals.refereeId] = x.refereeId; it[Referrals.code] = x.code
+            it[Referrals.status] = x.status.name; it[Referrals.welcomeVoucher] = x.welcomeVoucher; it[Referrals.rewardVoucher] = x.rewardVoucher; it[Referrals.createdAt] = ms(x.createdAt); it[Referrals.rewardedAt] = x.rewardedAt?.let(::ms)
+        }
+        override fun insert(referral: Referral) = tx { Referrals.insert { bind(it, referral) }; Unit }
+        override fun update(referral: Referral) = tx { Referrals.update({ Referrals.id eq referral.id }) { bind(it, referral) }; Unit }
     }
 
     val favorites = object : FavoriteRepo {
@@ -379,6 +447,7 @@ class Persistence(private val db: Database) {
         }
     }
 
+
     val rules = object : RuleRepo {
         private fun map(r: ResultRow) = CommissionRule(r[CommissionRules.id], r[CommissionRules.tenantId], RuleScope.valueOf(r[CommissionRules.scope]), r[CommissionRules.target], r[CommissionRules.targetLabel], r[CommissionRules.rateBps], at(r[CommissionRules.effectiveFrom]), r[CommissionRules.effectiveUntil]?.let(::at), r[CommissionRules.setBy], at(r[CommissionRules.createdAt]))
         override fun list(tenantId: Id) = tx { CommissionRules.selectAll().where { CommissionRules.tenantId eq tenantId }.map(::map) }
@@ -395,8 +464,11 @@ class Persistence(private val db: Database) {
         IdempotencyKeys.insert { it[IdempotencyKeys.tenantId] = tenantId; it[IdempotencyKeys.scope] = scope; it[idemKey] = key; it[IdempotencyKeys.response] = response; it[createdAt] = ms(now) }; Unit
     }
 
-    fun repos() = Repos(tenants, users, providers, locations, catalog, blocks, orders, payments, ledger, payouts, reviews, assets, audit, promos, favorites, places, tickets, notifications, devices, rules)
+    fun repos() = Repos(tenants, users, providers, locations, catalog, blocks, orders, payments, ledger, payouts, reviews, assets, audit, promos, favorites, places, tickets, notifications, devices, rules, promotions, referrals)
 }
+
+@Serializable
+data class DiscountLineRow(val kind: String, val label: String, val amountMinor: Long, val funder: String, val ref: String? = null)
 
 @Serializable
 data class OrderLineDto(val itemId: String, val name: String, val priceMinor: Long, val durationMinutes: Int, val baysUsed: Int = 1, val category: String = "")

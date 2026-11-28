@@ -53,6 +53,7 @@ private class Orders(val list: List<Order>) : OrderRepo {
     override fun countPromoUses(tenantId: Id, code: String, userId: Id?) = TODO()
     override fun dueForReminder(from: Instant, to: Instant, states: List<String>) = TODO()
     override fun staleIn(state: String, before: Instant) = TODO()
+    override fun discounted(tenantId: Id) = TODO()
 }
 
 private class Blocks(val list: List<Block> = emptyList()) : BlockRepo {

@@ -18,6 +18,8 @@ data class SearchQuery(
 data class LocationSummary(
     val location: Location, val providerName: String, val distanceKm: Double, val priceFromMinor: Long?,
     val nextFreeAt: Instant?, val openNow: Boolean,
+    /** A short deal badge ("20% off · 2–4 pm") when a promotion runs now or in the coming week; [dealNow] is true while it is running. */
+    val deal: String? = null, val dealNow: Boolean = false,
 )
 
 data class LocationDetail(val summary: LocationSummary, val items: List<CatalogItem>, val reviews: List<Review>)
@@ -30,7 +32,7 @@ fun haversineKm(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Double 
 }
 
 /** Nearby search. Uses plain distance maths for the POC; swap for PostGIS when the data grows. */
-class Discovery(private val r: Repos, private val availability: SlotAvailability, private val clock: Clock) {
+class Discovery(private val r: Repos, private val availability: SlotAvailability, private val clock: Clock, private val promotions: PromotionService? = null) {
 
     fun search(tenant: Tenant, q: SearchQuery): List<LocationSummary> {
         val now = clock.now()
@@ -79,6 +81,11 @@ class Discovery(private val r: Repos, private val availability: SlotAvailability
         val zone = ZoneId.of(l.timezone)
         val local = now.atZone(zone).toLocalTime()
         val open = l.open && !local.isBefore(l.openTime) && local.isBefore(l.closeTime)
-        return LocationSummary(l, providerName, Math.round(distance * 10) / 10.0, from, next, open)
+        val deal = promotions?.dealFor(tenant, l, now)
+        val dealText = deal?.let { (p, running) ->
+            val base = PromotionEngine.badge(p, tenant.config)
+            if (running || p.startTime != null) base else base + " " + (p.startDate?.let { PromotionEngine.datesText(it, p.endDate) } ?: "")
+        }?.trim()
+        return LocationSummary(l, providerName, Math.round(distance * 10) / 10.0, from, next, open, dealText, deal?.second ?: false)
     }
 }

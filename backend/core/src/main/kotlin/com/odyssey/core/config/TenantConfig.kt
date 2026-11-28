@@ -24,6 +24,21 @@ data class TenantConfig(
     val messages: Map<String, Message> = emptyMap(),
     /** Cities where the marketplace is live, so an app opened elsewhere can offer to look there. */
     val serviceAreas: List<ServiceArea> = emptyList(),
+    /** Refer-a-friend rewards. Both vouchers are funded by the platform. */
+    val referral: ReferralConfig = ReferralConfig(),
+)
+
+/** A voucher handed out by the referral scheme. PERCENT value is in basis points; FLAT is minor units. */
+@Serializable
+data class RewardTerms(val kind: String = "FLAT", val value: Long = 10_000, val maxDiscountMinor: Long? = null, val minSubtotalMinor: Long = 0, val validDays: Int = 30)
+
+@Serializable
+data class ReferralConfig(
+    val enabled: Boolean = true,
+    /** What the new customer gets when they use a friend's code. */
+    val welcome: RewardTerms = RewardTerms(),
+    /** What the friend gets after the new customer's first completed booking. */
+    val reward: RewardTerms = RewardTerms(),
 )
 
 @Serializable

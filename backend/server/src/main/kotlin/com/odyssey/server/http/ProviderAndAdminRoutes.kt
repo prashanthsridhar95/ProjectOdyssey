@@ -410,30 +410,6 @@ fun Route.adminRoutes(ctx: AppContext) {
             call.respond(t.dto(ctx.repos.orders.byId(t.orderId)))
         }
 
-        get("/promos") {
-            val actor = call.actor(); actor.requireBackoffice()
-            call.respond(ctx.repos.promos.list(actor.tenantId).map { it.dto() })
-        }
-
-        post("/promos") {
-            val actor = call.actor(); actor.require(Role.ADMIN)
-            val p = call.receive<PromoDto>()
-            val kind = runCatching { PromoKind.valueOf(p.kind) }.getOrElse { throw invalid("Kind must be FLAT or PERCENT") }
-            if (p.code.isBlank() || p.value <= 0) throw invalid("Give the code and a discount")
-            if (kind == PromoKind.PERCENT && p.value > 10_000) throw invalid("A percentage cannot be over 100%")
-            val promo = PromoCode(actor.tenantId, p.code.trim().uppercase(), kind, p.value, p.maxDiscountMinor, p.minSubtotalMinor, null, p.expiresAt?.let(::parseInstant), p.usageLimit, p.perUserLimit, p.active, p.description)
-            ctx.repos.promos.save(promo)
-            ctx.auditor.log(actor, "PROMO_SAVED", "promo", promo.code)
-            call.respond(HttpStatusCode.Created, promo.dto())
-        }
-
-        put("/promos/{code}/active") {
-            val actor = call.actor(); actor.require(Role.ADMIN)
-            val promo = ctx.repos.promos.byCode(actor.tenantId, call.pathId("code").uppercase()) ?: throw notFound("Promo")
-            ctx.repos.promos.save(promo.copy(active = call.receive<ActiveRequest>().active))
-            call.respond(HttpStatusCode.NoContent)
-        }
-
         get("/config") {
             val actor = call.actor(); actor.requireBackoffice()
             call.respond(call.tenantFor(ctx, actor).config)

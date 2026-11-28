@@ -68,7 +68,10 @@ fun Route.publicRoutes(ctx: AppContext) {
         val duration = if (itemIds.isEmpty()) location.slotMinutes
         else ctx.repos.catalog.byIds(itemIds).filter { it.locationId == location.id }.sumOf { it.durationMinutes }.takeIf { it > 0 } ?: throw invalid("Unknown services")
         val date = parseDate(call.request.queryParameters["date"], ZoneId.of(location.timezone))
-        call.respond(ctx.availability.slots(tenant, location, date, duration, ctx.clock.now()).map { it.dto() })
+        val slots = ctx.availability.slots(tenant, location, date, duration, ctx.clock.now())
+        // With services chosen, each slot carries its price so happy-hour deals show while picking a time.
+        val prices = if (itemIds.isEmpty()) emptyMap() else ctx.orders.slotPrices(tenant, location, itemIds, call.request.queryParameters["variant"], slots.map { it.startsAt })
+        call.respond(slots.map { s -> s.dto().let { d -> prices[s.startsAt]?.let { p -> d.copy(priceMinor = p.priceMinor, originalPriceMinor = p.originalMinor, deal = p.deal) } ?: d } })
     }
 
     /** Gateway callback. The signature is an HMAC-SHA256 of the raw body. */
@@ -188,8 +191,12 @@ fun Route.customerRoutes(ctx: AppContext) {
         val tenant = call.tenantFor(ctx, actor)
         val customer = ctx.repos.users.byId(actor.userId!!)
         val req = call.receive<QuoteRequest>()
-        val (q, promo) = ctx.orders.quote(tenant, customer, req.locationId, req.itemIds, req.variantKey, req.promoCode)
-        call.respond(QuoteDto(q.subtotalMinor, q.taxMinor, q.feeMinor, q.discountMinor, q.totalMinor, promo?.code, promo?.description))
+        val priced = ctx.orders.quote(tenant, customer, req.locationId, req.itemIds, req.variantKey, req.promoCode, req.startsAt?.let(::parseInstant))
+        val q = priced.quote
+        call.respond(QuoteDto(
+            q.subtotalMinor, q.taxMinor, q.feeMinor, q.discountMinor, q.totalMinor, priced.voucher?.code, priced.voucher?.description,
+            priced.discounts.map { it.dto(showFunder = false) }, priced.promotion?.name,
+        ))
     }
 
     post("/orders/{id}/payment/check") {

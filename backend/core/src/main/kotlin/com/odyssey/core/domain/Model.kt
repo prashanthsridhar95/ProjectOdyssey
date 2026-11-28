@@ -132,9 +132,23 @@ data class Order(
     val bay: Int? = null,
     /** Not stored: true while a payment has been started but the bank has not confirmed yet. */
     val paymentPending: Boolean = false,
+    /** Each discount on the booking and who pays for it. [discountMinor] is their total. */
+    val discounts: List<DiscountLine> = emptyList(),
+    /** The part of [discountMinor] the vendor funds. It lowers the service amount the vendor charges, so it also lowers tax and commission. */
+    val vendorDiscountMinor: Long = 0,
+    /** The automatic promotion (happy hour or date discount) priced into this booking, if any. */
+    val promotionId: Id? = null,
 ) {
-    val providerNetMinor get() = subtotalMinor - commissionMinor
+    /** What the vendor earns before the gateway fee: the service amount, less vendor-funded discounts and commission. */
+    val providerNetMinor get() = subtotalMinor - vendorDiscountMinor - commissionMinor
+    val platformDiscountMinor get() = discountMinor - vendorDiscountMinor
 }
+
+/** Who pays for a discount. A vendor-funded discount lowers the vendor's price; a platform-funded one comes out of commission. */
+enum class Funder { VENDOR, PLATFORM }
+
+/** One discount on a booking, kept with the booking so earnings stay correct if the offer later changes. [kind] is PROMOTION, VOUCHER or REFERRAL. */
+data class DiscountLine(val kind: String, val label: String, val amountMinor: Long, val funder: Funder, val ref: String? = null)
 
 data class OrderEvent(val orderId: Id, val from: String?, val to: String, val action: String, val actorId: Id?, val note: String?, val at: Instant)
 
@@ -162,12 +176,49 @@ data class CommissionRule(
     val effectiveFrom: Instant, val effectiveUntil: Instant?, val setBy: String, val createdAt: Instant,
 )
 
-enum class PromoKind { PERCENT, FLAT }
+/** PERCENT value is in basis points; FLAT and PRICE are minor units. PRICE (a set price per service) is for promotions only, not codes. */
+enum class PromoKind { PERCENT, FLAT, PRICE }
 
-/** A discount the tenant funds. PERCENT value is in basis points; FLAT is minor units. */
+/**
+ * A voucher or coupon code. PERCENT value is in basis points; FLAT is minor units.
+ * [providerId] limits it to one vendor's outlets; [fundedBy] says who pays. [ownerUserId] makes it a personal voucher
+ * (a referral reward) that only that customer can use. [source] is ADMIN, REFERRAL_WELCOME or REFERRAL_REWARD.
+ */
 data class PromoCode(
     val tenantId: Id, val code: String, val kind: PromoKind, val value: Long, val maxDiscountMinor: Long? = null, val minSubtotalMinor: Long = 0,
     val startsAt: Instant? = null, val expiresAt: Instant? = null, val usageLimit: Int? = null, val perUserLimit: Int = 1, val active: Boolean = true, val description: String = "",
+    val providerId: Id? = null, val fundedBy: Funder = Funder.PLATFORM, val ownerUserId: Id? = null, val source: String = "ADMIN", val createdAt: Instant? = null,
+)
+
+/** HAPPY_HOUR repeats on chosen weekdays and times; DATE_DISCOUNT runs on a date or date range. Both apply without a code. */
+enum class PromotionType { HAPPY_HOUR, DATE_DISCOUNT }
+
+/**
+ * An automatic price cut. A vendor's promotion ([providerId] set) applies to its outlets and the vendor funds it;
+ * a platform promotion ([providerId] null) applies everywhere and the platform funds it.
+ * Empty lists mean "all": every outlet, service, vehicle type or weekday. Times and dates are the outlet's local time,
+ * checked against the slot's start. The window is [startTime, endTime); the date range includes both ends.
+ */
+data class Promotion(
+    val id: Id, val tenantId: Id, val providerId: Id?, val type: PromotionType, val name: String,
+    val kind: PromoKind, val value: Long, val maxDiscountMinor: Long? = null,
+    val locationIds: List<Id> = emptyList(), val services: List<String> = emptyList(), val variantKeys: List<String> = emptyList(),
+    val days: List<java.time.DayOfWeek> = emptyList(), val startTime: LocalTime? = null, val endTime: LocalTime? = null,
+    val startDate: java.time.LocalDate? = null, val endDate: java.time.LocalDate? = null,
+    val active: Boolean = true, val createdBy: String = "", val createdAt: Instant, val updatedAt: Instant = createdAt,
+) {
+    val funder get() = if (providerId == null) Funder.PLATFORM else Funder.VENDOR
+}
+
+/** A customer's own code to share. */
+data class ReferralCode(val tenantId: Id, val userId: Id, val code: String, val createdAt: Instant)
+
+enum class ReferralStatus { PENDING, REWARDED }
+
+/** A new customer signed up with a friend's code. The friend is rewarded once the new customer's first booking is completed. */
+data class Referral(
+    val id: Id, val tenantId: Id, val referrerId: Id, val refereeId: Id, val code: String, val status: ReferralStatus,
+    val welcomeVoucher: String?, val rewardVoucher: String? = null, val createdAt: Instant, val rewardedAt: Instant? = null,
 )
 
 data class SavedPlace(val id: Id, val userId: Id, val label: String, val address: String, val lat: Double, val lng: Double)

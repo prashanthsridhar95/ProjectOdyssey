@@ -22,6 +22,7 @@ data class LocationSummaryDto(
     val distanceKm: Double, val priceFromMinor: Long? = null, val nextFreeAt: String? = null, val openNow: Boolean,
     val ratingAvg: Double, val ratingCount: Int, val amenities: List<String>, val photoUrl: String? = null,
     val openTime: String, val closeTime: String, val phone: String? = null,
+    val deal: String? = null, val dealNow: Boolean = false,
 )
 
 @Serializable
@@ -29,7 +30,8 @@ data class ItemDto(val id: String, val name: String, val description: String, va
 
 @Serializable data class ReviewDto(val id: String, val customerName: String, val rating: Int, val comment: String, val createdAt: String, val tags: List<String> = emptyList(), val reply: String? = null, val replyAt: String? = null, val locationId: String? = null)
 @Serializable data class LocationDetailDto(val location: LocationSummaryDto, val items: List<ItemDto>, val reviews: List<ReviewDto>)
-@Serializable data class SlotDto(val startsAt: String, val endsAt: String, val free: Int, val bookable: Boolean)
+/** [priceMinor] is what the chosen services cost at this time before tax; [originalPriceMinor] is the usual price; [deal] names the offer when they differ. */
+@Serializable data class SlotDto(val startsAt: String, val endsAt: String, val free: Int, val bookable: Boolean, val priceMinor: Long? = null, val originalPriceMinor: Long? = null, val deal: String? = null)
 
 @Serializable data class PlaceOrderRequest(val locationId: String, val itemIds: List<String>, val variantKey: String, val startsAt: String, val assetId: String? = null, val promoCode: String? = null)
 @Serializable data class PayRequest(val method: String = "UPI", val simulate: String? = null)
@@ -47,7 +49,11 @@ data class OrderDto(
     val actions: List<String>, val reviewed: Boolean = false,
     val discountMinor: Long = 0, val promoCode: String? = null, val paymentPending: Boolean = false, val reschedules: Int = 0, val bay: Int? = null, val acceptBy: String? = null,
     val locationPhone: String? = null, val locationAddress: String? = null, val locationLat: Double? = null, val locationLng: Double? = null,
+    val discounts: List<DiscountLineDto> = emptyList(), val vendorDiscountMinor: Long? = null,
 )
+
+/** One discount line. [funder] is VENDOR or PLATFORM. */
+@Serializable data class DiscountLineDto(val kind: String, val label: String, val amountMinor: Long, val funder: String? = null)
 
 @Serializable data class OrderLineView(val itemId: String, val name: String, val priceMinor: Long, val durationMinutes: Int)
 @Serializable data class OrderEventDto(val from: String? = null, val to: String, val action: String, val note: String? = null, val at: String, val by: String? = null)
@@ -101,8 +107,11 @@ data class ProviderDto(
 @Serializable data class PayoutDto(val id: String, val providerId: String, val providerName: String? = null, val amountMinor: Long, val orderCount: Int, val status: String, val createdAt: String)
 @Serializable data class AuditDto(val id: String, val actorRole: String, val actorId: String? = null, val action: String, val entity: String, val entityId: String? = null, val detail: String, val at: String)
 @Serializable data class PaymentWebhook(val event: String, val tenant: String, val orderId: String, val gatewayRef: String? = null, val method: String = "UPI")
-@Serializable data class QuoteRequest(val locationId: String, val itemIds: List<String>, val variantKey: String, val promoCode: String? = null)
-@Serializable data class QuoteDto(val subtotalMinor: Long, val taxMinor: Long, val feeMinor: Long, val discountMinor: Long, val totalMinor: Long, val promoCode: String? = null, val promoDescription: String? = null)
+@Serializable data class QuoteRequest(val locationId: String, val itemIds: List<String>, val variantKey: String, val promoCode: String? = null, val startsAt: String? = null)
+@Serializable data class QuoteDto(
+    val subtotalMinor: Long, val taxMinor: Long, val feeMinor: Long, val discountMinor: Long, val totalMinor: Long, val promoCode: String? = null, val promoDescription: String? = null,
+    val discounts: List<DiscountLineDto> = emptyList(), val promotionName: String? = null,
+)
 @Serializable data class RescheduleRequest(val startsAt: String)
 @Serializable data class SavedPlaceDto(val label: String, val address: String, val lat: Double, val lng: Double)
 @Serializable data class ReportRequest(val category: String, val description: String, val photos: List<String> = emptyList())
@@ -111,7 +120,13 @@ data class ProviderDto(
 @Serializable data class NotificationDto(val id: String, val title: String, val body: String, val orderId: String? = null, val read: Boolean, val createdAt: String)
 @Serializable data class DeviceRequest(val token: String, val platform: String = "android")
 @Serializable data class CheckInRequest(val code: String)
-@Serializable data class PromoDto(val code: String, val kind: String, val value: Long, val maxDiscountMinor: Long? = null, val minSubtotalMinor: Long = 0, val expiresAt: String? = null, val usageLimit: Int? = null, val perUserLimit: Int = 1, val active: Boolean = true, val description: String = "")
+/** A voucher or coupon. [fundedBy] is VENDOR or PLATFORM; a VENDOR code needs [providerId]. [uses] and [discountGivenMinor] are filled in for the back office. */
+@Serializable data class PromoDto(
+    val code: String, val kind: String, val value: Long, val maxDiscountMinor: Long? = null, val minSubtotalMinor: Long = 0, val expiresAt: String? = null, val usageLimit: Int? = null,
+    val perUserLimit: Int = 1, val active: Boolean = true, val description: String = "",
+    val startsAt: String? = null, val providerId: String? = null, val providerName: String? = null, val fundedBy: String = "PLATFORM", val source: String = "ADMIN",
+    val uses: Int = 0, val discountGivenMinor: Long = 0,
+)
 @Serializable data class ActiveRequest(val active: Boolean)
 @Serializable data class CustomerDto(val id: String, val name: String, val phone: String, val active: Boolean)
 
@@ -123,6 +138,7 @@ fun Instant.iso(): String = toString()
 fun LocationSummary.dto() = LocationSummaryDto(
     location.id, location.providerId, location.name, providerName, location.address, location.lat, location.lng, distanceKm, priceFromMinor,
     nextFreeAt?.iso(), openNow, location.ratingAvg, location.ratingCount, location.amenities, location.photoUrl, location.openTime.toString(), location.closeTime.toString(), location.phone,
+    deal, dealNow,
 )
 
 fun CatalogItem.dto() = ItemDto(id, name, description, category, durationMinutes, active, prices, baysUsed, outOfStock)
@@ -150,6 +166,7 @@ fun Order.dto(tenant: Tenant, actor: Actor, reviewed: Boolean = false, loc: Loca
         holdExpiresAt?.iso(), cancellationReason, createdAt.iso(),
         flow.actionsFor(status, actor.role).map { it.action }, reviewed,
         discountMinor, promoCode, paymentPending, reschedules, bay, if (status == flow.paid) updatedAt.plusSeconds(tenant.config.availability.acceptMinutes * 60L).iso() else null, loc?.phone, loc?.address, loc?.lat, loc?.lng,
+        discounts.map { it.dto(!isCustomer) }, if (isCustomer) null else vendorDiscountMinor,
     )
 }
 
@@ -166,7 +183,11 @@ fun Tenant.publicConfig() = PublicConfig(
 
 fun Ticket.dto(order: Order? = null) = TicketDto(id, orderId, order?.code, order?.locationName, order?.customerName, category, description, photos, status.name, resolutionNote, refundMinor, order?.totalMinor, createdAt.iso())
 fun Notification.dto() = NotificationDto(id, title, body, orderId, read, createdAt.iso())
-fun PromoCode.dto() = PromoDto(code, kind.name, value, maxDiscountMinor, minSubtotalMinor, expiresAt?.iso(), usageLimit, perUserLimit, active, description)
+fun PromoCode.dto(providerName: String? = null, uses: Int = 0, given: Long = 0) = PromoDto(
+    code, kind.name, value, maxDiscountMinor, minSubtotalMinor, expiresAt?.iso(), usageLimit, perUserLimit, active, description,
+    startsAt?.iso(), providerId, providerName, fundedBy.name, source, uses, given,
+)
+fun DiscountLine.dto(showFunder: Boolean = true) = DiscountLineDto(kind, label, amountMinor, if (showFunder) funder.name else null)
 fun SavedPlace.dto() = SavedPlaceDto(label, address, lat, lng)
 
 @Serializable data class BulkEditItem(val name: String, val prices: Map<String, Long>? = null, val active: Boolean? = null, val outOfStock: Boolean? = null)

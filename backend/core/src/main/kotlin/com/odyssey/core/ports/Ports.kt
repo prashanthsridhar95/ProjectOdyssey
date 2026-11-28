@@ -105,6 +105,8 @@ interface OrderRepo {
     fun dueForReminder(from: Instant, to: Instant, states: List<String>): List<Order>
     /** Orders still in [state] that were last updated before [before]. */
     fun staleIn(state: String, before: Instant): List<Order>
+    /** Live (not expired, cancelled, rejected or unpaid) orders in the tenant that carry any discount. Used for usage numbers. */
+    fun discounted(tenantId: Id): List<Order>
 }
 
 interface PaymentRepo {
@@ -155,6 +157,30 @@ interface PromoRepo {
     fun byCode(tenantId: Id, code: String): PromoCode?
     fun list(tenantId: Id): List<PromoCode>
     fun save(promo: PromoCode)
+    /** Personal vouchers (referral rewards) held by a customer. */
+    fun byOwner(userId: Id): List<PromoCode>
+}
+
+interface PromotionRepo {
+    fun byId(id: Id): Promotion?
+    /** Every promotion in the tenant, vendor and platform. */
+    fun list(tenantId: Id): List<Promotion>
+    fun byProvider(providerId: Id): List<Promotion>
+    /** Active promotions that could apply at a vendor's outlets: its own and the platform's. */
+    fun activeFor(tenantId: Id, providerId: Id): List<Promotion>
+    fun save(promotion: Promotion)
+    fun delete(id: Id): Boolean
+}
+
+interface ReferralRepo {
+    fun codeFor(userId: Id): ReferralCode?
+    fun byCode(tenantId: Id, code: String): ReferralCode?
+    fun saveCode(code: ReferralCode)
+    fun byReferee(refereeId: Id): Referral?
+    fun byReferrer(referrerId: Id): List<Referral>
+    fun list(tenantId: Id): List<Referral>
+    fun insert(referral: Referral)
+    fun update(referral: Referral)
 }
 
 interface FavoriteRepo {
@@ -216,4 +242,6 @@ class Repos(
     val notifications: NotificationRepo,
     val devices: DeviceRepo,
     val rules: RuleRepo,
+    val promotions: PromotionRepo,
+    val referrals: ReferralRepo,
 )

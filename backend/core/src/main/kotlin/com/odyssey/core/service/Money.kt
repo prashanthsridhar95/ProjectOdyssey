@@ -7,7 +7,8 @@ import com.odyssey.core.ports.Ids
 import com.odyssey.core.ports.LedgerRepo
 import java.time.Instant
 
-data class Quote(val subtotalMinor: Long, val taxMinor: Long, val feeMinor: Long, val totalMinor: Long, val commissionBps: Int, val commissionMinor: Long, val discountMinor: Long = 0)
+/** [discountMinor] is every discount; [vendorDiscountMinor] is the vendor-funded part of it. */
+data class Quote(val subtotalMinor: Long, val taxMinor: Long, val feeMinor: Long, val totalMinor: Long, val commissionBps: Int, val commissionMinor: Long, val discountMinor: Long = 0, val vendorDiscountMinor: Long = 0)
 
 fun bps(amountMinor: Long, bps: Int): Long = Math.round(amountMinor * bps / 10_000.0)
 
@@ -22,15 +23,25 @@ class CommissionResolver(private val rules: List<CommissionRule>, private val co
 }
 
 object Pricing {
-    /** Commission is taken on the service amount only, never on tax or customer fees. */
-    fun quote(config: TenantConfig, provider: Provider?, subtotalMinor: Long, discountMinor: Long = 0, commissionMinorOverride: Long? = null): Quote {
+    /**
+     * Commission is taken on the service amount only, never on tax or customer fees.
+     * A vendor-funded discount ([vendorDiscountMinor]) lowers the vendor's price, so tax and commission are worked out on what is left.
+     * A platform-funded discount ([discountMinor]) comes off what the customer pays after tax, and out of the platform's commission.
+     */
+    fun quote(config: TenantConfig, provider: Provider?, subtotalMinor: Long, discountMinor: Long = 0, commissionMinorOverride: Long? = null, vendorDiscountMinor: Long = 0): Quote {
+        val vendorDiscount = vendorDiscountMinor.coerceIn(0, subtotalMinor)
+        val service = subtotalMinor - vendorDiscount
         val commissionBps = provider?.commissionBps ?: config.money.defaultCommissionBps
-        val commission = commissionMinorOverride ?: bps(subtotalMinor, commissionBps)
+        val commission = commissionMinorOverride ?: bps(service, commissionBps)
         val fee = config.money.customerFeeMinor
-        // Tax applies to the service plus the convenience fee; a promo reduces what the customer pays after tax.
-        val tax = bps(subtotalMinor + fee, config.money.taxBps)
-        val discount = minOf(discountMinor, subtotalMinor + fee + tax)
-        return Quote(subtotalMinor, tax, fee, subtotalMinor + tax + fee - discount, if (subtotalMinor > 0) Math.round(commission * 10_000.0 / subtotalMinor).toInt() else commissionBps, commission, discount)
+        // Tax applies to the service plus the convenience fee; a platform promo reduces what the customer pays after tax.
+        val tax = bps(service + fee, config.money.taxBps)
+        val platformDiscount = discountMinor.coerceIn(0, service + fee + tax)
+        return Quote(
+            subtotalMinor, tax, fee, service + tax + fee - platformDiscount,
+            if (service > 0) Math.round(commission * 10_000.0 / service).toInt() else commissionBps, commission,
+            vendorDiscount + platformDiscount, vendorDiscount,
+        )
     }
 }
 
@@ -58,18 +69,21 @@ class Ledger(private val repo: LedgerRepo, private val ids: Ids, private val clo
 
     fun paymentCaptured(o: Order) = post(o.tenantId, o.id, "PAYMENT_CAPTURED", listOf(Accounts.GATEWAY to o.totalMinor, Accounts.ESCROW to -o.totalMinor))
 
-    /** Completed or no-show: the provider earns the service amount minus commission; tax and fee go to their accounts. */
+    /**
+     * Completed or no-show: the provider earns the service amount, less its own discounts and commission; tax and fee go to their accounts.
+     * Vendor-funded discounts already lowered the service amount. Platform-funded ones come out of the tenant's commission.
+     */
     fun settled(o: Order, gatewayFeeBps: Int = 0): Long {
-        val fee = bps(o.subtotalMinor, gatewayFeeBps)
+        val service = o.subtotalMinor - o.vendorDiscountMinor
+        val fee = bps(service, gatewayFeeBps)
         post(
             o.tenantId, o.id, "SETTLED",
             listOf(
                 Accounts.ESCROW to o.totalMinor,
-                Accounts.PROVIDER_PAYABLE to -(o.subtotalMinor - o.commissionMinor - fee),
+                Accounts.PROVIDER_PAYABLE to -(service - o.commissionMinor - fee),
                 // The gateway's cut is recovered from the vendor's share.
                 Accounts.GATEWAY_FEE to -fee,
-            // A promo is funded by the tenant, so it comes out of the tenant's commission, not the vendor's share.
-                Accounts.TENANT_COMMISSION to -(o.commissionMinor - o.discountMinor),
+                Accounts.TENANT_COMMISSION to -(o.commissionMinor - o.platformDiscountMinor),
                 Accounts.TAX_PAYABLE to -o.taxMinor,
                 Accounts.CUSTOMER_FEE to -o.feeMinor,
             ),

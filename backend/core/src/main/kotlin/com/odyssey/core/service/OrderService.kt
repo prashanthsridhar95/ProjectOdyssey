@@ -6,6 +6,7 @@ import com.odyssey.core.domain.*
 import com.odyssey.core.ports.*
 import java.time.Duration
 import java.time.Instant
+import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -34,16 +35,12 @@ class OrderService(
     private val notifier: Notifier,
     private val clock: Clock,
     private val ids: Ids,
+    private val referrals: ReferralService,
 ) {
     // ---- placing ---------------------------------------------------------------------------------------------
 
     /** Time a booking holds a bay. Services that use no bay (add-ons done alongside another service) add nothing. */
     private fun bayMinutes(lines: List<OrderLine>) = lines.filter { it.baysUsed > 0 }.sumOf { it.durationMinutes }
-
-    private fun commissionFor(tenant: Tenant, provider: Provider, location: Location, lines: List<OrderLine>, at: Instant): Long {
-        val resolver = CommissionResolver(r.rules.list(tenant.id), tenant.config)
-        return lines.sumOf { bps(it.priceMinor, resolver.rateBps(provider, location.id, it.category, at)) }
-    }
 
     private class Basket(val location: Location, val provider: Provider, val lines: List<OrderLine>, val durationMinutes: Int)
 
@@ -64,12 +61,55 @@ class OrderService(
         return Basket(location, provider, lines, bayMinutes(lines))
     }
 
-    /** Price breakdown for a basket, including an optional promo. Used by checkout before anything is held. */
-    fun quote(tenant: Tenant, customer: User?, locationId: Id, itemIds: List<Id>, variantKey: String, promoCode: String?): Pair<Quote, PromoService.Applied?> {
-        val b = basket(tenant, locationId, itemIds, variantKey)
+    /**
+     * Prices a basket: the best automatic promotion for the slot (happy hour or date discount), then an optional code on what is left.
+     * Vendor-funded parts lower the vendor's service amount, so commission is worked out per line on what the vendor actually charges.
+     */
+    private fun price(tenant: Tenant, customerId: Id?, b: Basket, variantKey: String, startsAt: Instant?, code: String?): PricedBasket {
         val subtotal = b.lines.sumOf { it.priceMinor }
-        val applied = promoCode?.takeIf { it.isNotBlank() }?.let { promos.apply(tenant, customer?.id, it, subtotal) }
-        return Pricing.quote(tenant.config, b.provider, subtotal, applied?.discountMinor ?: 0, commissionFor(tenant, b.provider, b.location, b.lines, clock.now())) to applied
+        val zone = ZoneId.of(b.location.timezone)
+        val best = startsAt?.let { PromotionEngine.best(r.promotions.activeFor(tenant.id, b.provider.id), b.location.id, b.lines, variantKey, LocalDateTime.ofInstant(it, zone)) }
+        val promoLine = best?.perLine ?: b.lines.map { 0L }
+        val voucher = code?.takeIf { it.isNotBlank() }?.let { promos.apply(tenant, customerId, it, subtotal - promoLine.sum(), b.provider.id) }
+        val vendorLine = MutableList(b.lines.size) { i -> if (best?.promotion?.funder == Funder.VENDOR) promoLine[i] else 0L }
+        if (voucher != null && voucher.funder == Funder.VENDOR) {
+            PromotionEngine.allocate(voucher.discountMinor, b.lines.mapIndexed { i, l -> l.priceMinor - promoLine[i] }).forEachIndexed { i, v -> vendorLine[i] += v }
+        }
+        val platformDiscount = (if (best?.promotion?.funder == Funder.PLATFORM) best.totalMinor else 0L) + (if (voucher?.funder == Funder.PLATFORM) voucher.discountMinor else 0L)
+        val resolver = CommissionResolver(r.rules.list(tenant.id), tenant.config)
+        val now = clock.now()
+        val commission = b.lines.withIndex().sumOf { (i, l) -> bps(l.priceMinor - vendorLine[i], resolver.rateBps(b.provider, b.location.id, l.category, now)) }
+        val quote = Pricing.quote(tenant.config, b.provider, subtotal, platformDiscount, commission, vendorLine.sum())
+        val discounts = buildList {
+            best?.let { add(DiscountLine("PROMOTION", it.promotion.name, it.totalMinor, it.promotion.funder, it.promotion.id)) }
+            voucher?.takeIf { it.discountMinor > 0 }?.let {
+                add(DiscountLine(it.kind, if (it.kind == "REFERRAL") "Friend's code ${it.code}" else "Code ${it.code}", it.discountMinor, it.funder, it.code))
+            }
+        }
+        return PricedBasket(quote, discounts, best?.promotion, voucher)
+    }
+
+    /** Price breakdown for a basket, including any promotion at [startsAt] and an optional code. Used by checkout before anything is held. */
+    fun quote(tenant: Tenant, customer: User?, locationId: Id, itemIds: List<Id>, variantKey: String, promoCode: String?, startsAt: Instant? = null): PricedBasket {
+        val b = basket(tenant, locationId, itemIds, variantKey)
+        return price(tenant, customer?.id, b, variantKey, startsAt, promoCode)
+    }
+
+    data class SlotPrice(val priceMinor: Long, val originalMinor: Long, val deal: String?)
+
+    /** What the chosen services cost at each slot start, before tax, so the slot picker can show happy-hour prices. Empty when a service has no price for the variant. */
+    fun slotPrices(tenant: Tenant, location: Location, itemIds: List<Id>, variantKey: String?, starts: List<Instant>): Map<Instant, SlotPrice> {
+        val variant = variantKey ?: tenant.config.variants.options.firstOrNull()?.key ?: return emptyMap()
+        val items = r.catalog.byIds(itemIds.distinct()).filter { it.locationId == location.id }
+        if (items.isEmpty() || items.any { !it.prices.containsKey(variant) }) return emptyMap()
+        val lines = items.map { OrderLine(it.id, it.name, it.prices.getValue(variant), it.durationMinutes, it.baysUsed, it.category) }
+        val offers = r.promotions.activeFor(tenant.id, location.providerId)
+        val subtotal = lines.sumOf { it.priceMinor }
+        val zone = ZoneId.of(location.timezone)
+        return starts.associateWith { s ->
+            val best = if (offers.isEmpty()) null else PromotionEngine.best(offers, location.id, lines, variant, LocalDateTime.ofInstant(s, zone))
+            SlotPrice(subtotal - (best?.totalMinor ?: 0), subtotal, best?.let { PromotionEngine.amountText(it.promotion.kind, it.promotion.value, tenant.config.money.currency) })
+        }
     }
 
     fun place(tenant: Tenant, customer: User, cmd: PlaceOrder): Order {
@@ -78,12 +118,19 @@ class OrderService(
         val now = clock.now()
         val slots = availability.slotsNeeded(b.location, b.durationMinutes)
         val endsAt = cmd.startsAt.plus(Duration.ofMinutes((slots * b.location.slotMinutes).toLong()))
-        val subtotal = b.lines.sumOf { it.priceMinor }
-        val applied = cmd.promoCode?.takeIf { it.isNotBlank() }?.let { promos.apply(tenant, customer.id, it, subtotal) }
-        val quote = Pricing.quote(tenant.config, b.provider, subtotal, applied?.discountMinor ?: 0, commissionFor(tenant, b.provider, b.location, b.lines, now))
+        val priced = price(tenant, customer.id, b, cmd.variantKey, cmd.startsAt, cmd.promoCode)
+        val quote = priced.quote
         return uow.run(b.location.id) {
             availability.ensureBookable(tenant, b.location, cmd.startsAt, b.durationMinutes, now)
             val bay = availability.assignBay(tenant, b.location, cmd.startsAt, endsAt, now)
+            // A friend's code becomes the customer's own welcome voucher, so the referral is recorded once and the voucher frees up again if this booking lapses.
+            var code = priced.voucher?.code
+            var discounts = priced.discounts
+            if (priced.voucher?.kind == "REFERRAL") {
+                val voucher = referrals.redeem(tenant, customer, priced.voucher.code)
+                code = voucher.code
+                discounts = discounts.map { if (it.kind == "REFERRAL") it.copy(ref = voucher.code) else it }
+            }
             val order = Order(
                 id = ids.newId(), tenantId = tenant.id, code = ids.newCode(), customerId = customer.id,
                 customerName = customer.name, customerPhone = customer.phone,
@@ -93,7 +140,8 @@ class OrderService(
                 subtotalMinor = quote.subtotalMinor, taxMinor = quote.taxMinor, feeMinor = quote.feeMinor, totalMinor = quote.totalMinor,
                 commissionBps = quote.commissionBps, commissionMinor = quote.commissionMinor,
                 holdExpiresAt = now.plus(Duration.ofMinutes(tenant.config.availability.holdMinutes.toLong())),
-                createdAt = now, updatedAt = now, discountMinor = quote.discountMinor, promoCode = applied?.code, bay = bay,
+                createdAt = now, updatedAt = now, discountMinor = quote.discountMinor, promoCode = code, bay = bay,
+                discounts = discounts, vendorDiscountMinor = quote.vendorDiscountMinor, promotionId = priced.promotion?.id,
             )
             r.orders.insert(order)
             r.orders.addEvent(OrderEvent(order.id, null, order.status, "PLACE", customer.id, null, now))
@@ -211,6 +259,14 @@ class OrderService(
             if (now.isAfter(cutoff)) throw conflict("too_late", "You can move it up to ${tenant.config.cancellation.fullRefundHoursBefore} hours before it starts")
             if (order.reschedules >= 2) throw conflict("limit_reached", "This ${tenant.config.labels.order.lowercase()} was already moved twice")
             val location = r.locations.byId(order.locationId) ?: throw notFound("Location")
+            // A time-limited price only holds inside its window, so a happy-hour booking can move only to another happy-hour slot.
+            order.promotionId?.let { pid ->
+                val promo = r.promotions.byId(pid)
+                val local = LocalDateTime.ofInstant(newStart, ZoneId.of(location.timezone))
+                if (promo == null || !PromotionEngine.appliesAt(promo, location.id, local, ignoreActive = true)) {
+                    throw conflict("offer_window", "This price was for ${promo?.name ?: "an offer"}. Pick another time it covers, or cancel and book again")
+                }
+            }
             val duration = bayMinutes(order.lines)
             availability.ensureBookable(tenant, location, newStart, duration, now, excludeOrderId = order.id)
             val slots = availability.slotsNeeded(location, duration)
@@ -265,6 +321,7 @@ class OrderService(
             Effect.SETTLE, Effect.SETTLE_NO_SHOW -> if (order.source == OrderSource.APP) {
                 ledger.settled(order, tenant.config.money.gatewayFeeBps)
                 updated = updated.copy(settled = true)
+                if (def.effect == Effect.SETTLE) referrals.onCompleted(tenant, updated)
             }
         }
         r.orders.update(updated)

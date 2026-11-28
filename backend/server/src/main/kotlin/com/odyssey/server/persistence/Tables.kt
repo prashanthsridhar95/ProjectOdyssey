@@ -126,6 +126,9 @@ object Orders : Table("orders") {
     val reminded = bool("reminded")
     val reschedules = integer("reschedules")
     val bay = integer("bay").nullable()
+    val discounts = text("discounts")
+    val vendorDiscountMinor = long("vendor_discount_minor")
+    val promotionId = varchar("promotion_id", 36).nullable()
     override val primaryKey = PrimaryKey(id)
 }
 
@@ -241,7 +244,58 @@ object PromoCodes : Table("promo_codes") {
     val perUserLimit = integer("per_user_limit")
     val active = bool("active")
     val description = varchar("description", 200)
+    val providerId = varchar("provider_id", 36).nullable()
+    val fundedBy = varchar("funded_by", 16)
+    val ownerUserId = varchar("owner_user_id", 36).nullable()
+    val origin = varchar("source", 32)
+    val createdAt = long("created_at").nullable()
     override val primaryKey = PrimaryKey(tenantId, code)
+}
+
+object Promotions : Table("promotions") {
+    val id = varchar("id", 36)
+    val tenantId = varchar("tenant_id", 36)
+    val providerId = varchar("provider_id", 36).nullable()
+    val type = varchar("promo_type", 20)
+    val name = varchar("name", 100)
+    val kind = varchar("kind", 16)
+    val discountValue = long("discount_value")
+    val maxDiscountMinor = long("max_discount_minor").nullable()
+    val locationIds = text("location_ids")
+    val services = text("services")
+    val variantKeys = text("variant_keys")
+    val days = varchar("days", 40)
+    val startTime = varchar("start_time", 5).nullable()
+    val endTime = varchar("end_time", 5).nullable()
+    val startDate = varchar("start_date", 10).nullable()
+    val endDate = varchar("end_date", 10).nullable()
+    val active = bool("active")
+    val createdBy = varchar("created_by", 200)
+    val createdAt = long("created_at")
+    val updatedAt = long("updated_at")
+    override val primaryKey = PrimaryKey(id)
+}
+
+object ReferralCodes : Table("referral_codes") {
+    val userId = varchar("user_id", 36)
+    val tenantId = varchar("tenant_id", 36)
+    val code = varchar("code", 40)
+    val createdAt = long("created_at")
+    override val primaryKey = PrimaryKey(userId)
+}
+
+object Referrals : Table("referrals") {
+    val id = varchar("id", 36)
+    val tenantId = varchar("tenant_id", 36)
+    val referrerId = varchar("referrer_id", 36)
+    val refereeId = varchar("referee_id", 36)
+    val code = varchar("code", 40)
+    val status = varchar("status", 16)
+    val welcomeVoucher = varchar("welcome_voucher", 40).nullable()
+    val rewardVoucher = varchar("reward_voucher", 40).nullable()
+    val createdAt = long("created_at")
+    val rewardedAt = long("rewarded_at").nullable()
+    override val primaryKey = PrimaryKey(id)
 }
 
 object Favorites : Table("favorites") {
