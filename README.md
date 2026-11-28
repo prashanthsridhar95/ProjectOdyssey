@@ -70,6 +70,13 @@ api/       OpenAPI contract
 
 Commission is a percentage of the **service amount** (not tax or fees), per vendor or the tenant default, fixed on the booking at the time it is placed. Every money movement is a balanced double-entry ledger transaction (payment, settlement, full or partial refund, payout). Completed and no-show bookings become payable; the admin runs payouts. Platform billing (base subscription + per-order percentage above a threshold) is computed per month.
 
+### Promotions
+
+- **Happy hours and date discounts** apply without a code. A vendor sets them per outlet (weekdays and a time window, or a date range; % off, amount off or a special price; optionally only some services or vehicle types). The admin can run platform-wide date offers. The slot's start time decides, in the outlet's time zone; only the single best offer applies; slots carry their discounted price so customers see deals while choosing a time. A booking made under a happy hour can be moved only to another time that offer covers.
+- **Vouchers** (`/admin/promos`) have a value, minimum, maximum, validity dates, total and per-customer limits, an optional vendor, and who pays. A voucher stacks on top of an automatic offer.
+- **Refer a friend**: every customer has a code. A new customer who uses it (at checkout or on the Refer a friend screen) gets a welcome voucher; the friend gets a thank-you voucher when that first booking is completed. Both are platform-funded; terms are set in the admin console.
+- **Who pays.** Each booking keeps its discount lines and who funded them. A vendor-funded discount lowers the vendor's price, so tax, commission and the gateway fee are worked out on the lower amount. A platform-funded discount comes off what the customer pays after tax and out of the platform's commission; the vendor is paid as if there were no discount. Ledger settlement follows the same split, so payouts and statements stay correct.
+
 ## Product experience
 
 The admin and vendor consoles share one design system (`web/packages/ui`) built for daily operational use:

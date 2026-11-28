@@ -22,7 +22,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun MoreScreen(
     p: Provider, user: User, unreplied: Int, onEarnings: (() -> Unit)?, onReviews: () -> Unit, onOutlet: () -> Unit, onStaff: () -> Unit,
-    onBank: () -> Unit, onPin: () -> Unit, onLock: () -> Unit,
+    onBank: () -> Unit, onPin: () -> Unit, onLock: () -> Unit, onPromotions: (() -> Unit)? = null,
 ) {
     val app = LocalContainer.current
     val owner = user.role == Role.PROVIDER_OWNER
@@ -43,6 +43,7 @@ fun MoreScreen(
         Column {
             if (onEarnings != null) SettingRow(Lucide.Wallet, "Earnings and payouts", "Behind your Owner PIN", onClick = onEarnings)
             SettingRow(Lucide.Star, "Reviews", loc?.let { if (it.ratingCount > 0) "★ ${it.ratingAvg} from ${it.ratingCount} reviews" else "No reviews yet" }, badge = unreplied, onClick = onReviews)
+            if (manager && onPromotions != null) SettingRow(Lucide.Zap, "Promotions", "Happy hours and date discounts", onClick = onPromotions)
             if (manager && loc != null) SettingRow(Lucide.Store, "Outlet settings", "${loc.openTime} – ${loc.closeTime} · ${loc.capacity} bays · ${if (loc.autoAccept) "auto-accept on" else "you accept each booking"}", onClick = onOutlet)
             if (owner) SettingRow(Lucide.Users, "Staff", staff?.let { "$it ${if (it == 1) "person" else "people"} can sign in, you included" } ?: "Who can sign in at the counter", onClick = onStaff)
             if (owner) SettingRow(Lucide.Landmark, "Bank account", p.bank?.let { "${it.accountNumberMasked} · ${it.ifsc}" } ?: "Not added yet", onClick = onBank)

@@ -77,7 +77,7 @@ class AdminService(private val r: Repos, private val uow: UnitOfWork, private va
             val sums = r.ledger.sumByAccount(orders.map { it.id })
             val status = when { failed != null -> "FAILED"; p.payoutHold -> "HELD"; p.bank == null -> "NO_BANK"; else -> "READY" }
             BatchRow(
-                p.id, p.name, orders.size, orders.sumOf { it.subtotalMinor }, orders.sumOf { it.commissionMinor }, -(sums[Accounts.GATEWAY_FEE] ?: 0L), -(sums[Accounts.PROVIDER_PAYABLE] ?: 0L),
+                p.id, p.name, orders.size, orders.sumOf { it.subtotalMinor - it.vendorDiscountMinor }, orders.sumOf { it.commissionMinor }, -(sums[Accounts.GATEWAY_FEE] ?: 0L), -(sums[Accounts.PROVIDER_PAYABLE] ?: 0L),
                 p.bank?.let { "${it.ifsc.take(4)} ${it.accountNumberMasked}" }, status, failed?.id, failed?.failureReason,
             )
         }

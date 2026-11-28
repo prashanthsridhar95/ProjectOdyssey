@@ -11,6 +11,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -61,7 +63,7 @@ class SlotsViewModel(private val app: AppContainer, private val locationId: Stri
         }
     }
 
-    private fun load() { val d = _state.value.date; loaded.load { app.loadSlots(locationId, d, itemIds) } }
+    private fun load() { val d = _state.value.date; loaded.load { app.loadSlots(locationId, d, itemIds, variantKey) } }
     fun day(date: String) { _state.value = _state.value.copy(date = date, selected = null); load() }
     fun pick(startsAt: String) { _state.value = _state.value.copy(selected = startsAt) }
     fun retry() = load()
@@ -80,11 +82,17 @@ fun SlotPickerScreen(
     val slots = (s.slots as? Load.Ready)?.value ?: emptyList()
     val step = slots.firstOrNull()?.let { ((it.endsAt.toInstantOrNull()!! - it.startsAt.toInstantOrNull()!!).inWholeMinutes).toInt() } ?: 30
     val end = s.selected?.let { endOf(it, s.durationMinutes, step) }
+    val chosen = slots.firstOrNull { it.startsAt == s.selected }
+    val deals = slots.filter { it.bookable && it.discounted }
 
     Screen(
         heading, subtitle = s.title.ifBlank { null }, onBack = onBack,
         footer = {
-            if (s.selected != null && end != null) Row { Body(range(s.selected, end), modifier = Modifier.weight(1f)); if (s.priceMinor != null) Body(formatMoney(s.priceMinor, cfg.money.currency), weight = FontWeight.SemiBold) }
+            if (s.selected != null && end != null) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Body(range(s.selected, end), modifier = Modifier.weight(1f))
+                if (chosen?.discounted == true) Body(formatMoney(chosen.originalPriceMinor, cfg.money.currency), size = 13, color = Ind.muted, strike = true)
+                (chosen?.priceMinor ?: s.priceMinor)?.let { Body(formatMoney(it, cfg.money.currency), weight = FontWeight.SemiBold, color = if (chosen?.discounted == true) Ind.a700 else Ind.text) }
+            }
             PrimaryButton(confirmText, { s.selected?.let(onContinue) }, enabled = s.selected != null)
         },
     ) {
@@ -100,6 +108,10 @@ fun SlotPickerScreen(
         }
         Remote(s.slots, vm::retry) { all ->
             if (all.none { it.bookable }) EmptyNote("No free slots on this day. Try another day.")
+            if (deals.isNotEmpty()) Row(Modifier.fillMaxWidth().background(Ind.a100).padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Icon(Lucide.Zap, null, Modifier.size(18.dp), tint = Ind.a800)
+                Body("${deals.first().deal ?: "Deal"} at ${deals.size} time${if (deals.size == 1) "" else "s"} today. Look for the marked slots.".let { if (s.date != days.first()) it.replace(" today", " this day") else it }, size = 13, color = Ind.a800, modifier = Modifier.weight(1f))
+            }
             groupSlots(all).forEach { (part, list) ->
                 Section(part.label) {
                     list.chunked(3).forEach { row ->
@@ -123,6 +135,9 @@ private fun SlotCell(sl: Slot, selected: Boolean, end: String?, modifier: Modifi
             Body(clock(sl.startsAt), size = 15, color = Ind.bg, weight = FontWeight.SemiBold); if (end != null) Body("to ${clock(end)}", size = 10, color = Ind.bg)
         }
         !sl.bookable -> Box(base.hairline(), Alignment.Center) { Body(clock(sl.startsAt), size = 15, color = Ind.mutedSoft, strike = true) }
+        sl.discounted -> Column(base.background(Ind.a100).hairline(Ind.accent).clickable(onClick = onClick).semantics { contentDescription = "${formatTime(sl.startsAt)}, ${sl.deal ?: "deal"}" }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Body(clock(sl.startsAt), size = 15, color = Ind.a800, weight = FontWeight.Medium); Body(sl.deal ?: "Deal", size = 10, color = Ind.a800, weight = FontWeight.SemiBold)
+        }
         else -> Column(base.hairline().clickable(onClick = onClick), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Body(clock(sl.startsAt), size = 15); if (sl.free == 1) Body("1 bay left", size = 10, color = Ind.a700)
         }
@@ -145,6 +160,7 @@ object LocalDateParts {
 data class CheckoutState(
     val summary: Load<CheckoutSummary> = Load.Loading, val order: Order? = null, val secondsLeft: Int = 0, val method: String = "UPI", val test: String? = null,
     val paying: Boolean = false, val error: String? = null, val paid: Order? = null, val pending: Order? = null, val promoInput: String = "", val promoError: String? = null,
+    val vouchers: List<Voucher> = emptyList(),
 )
 
 data class CheckoutSummary(val place: String, val items: List<Item>, val quote: Quote, val startsAt: String, val endsAt: String, val currency: String)
@@ -159,7 +175,10 @@ class CheckoutViewModel(
     private var payKey = newKey()
     private var ticker = 0
 
-    init { start() }
+    init {
+        start()
+        viewModelScope.launch { runCatching { app.customer.vouchers() }.onSuccess { _state.value = _state.value.copy(vouchers = it) } }
+    }
 
     /** Placing the order holds the slot for a few minutes while the customer pays. Applying a promo re-places it with the discount. */
     fun start() {
@@ -168,7 +187,7 @@ class CheckoutViewModel(
             try {
                 val d = app.loadPlace(locationId, variantKey)
                 val items = d.items.filter { it.id in itemIds }
-                val quote = app.customer.quote(locationId, itemIds, variantKey, promo)
+                val quote = app.customer.quote(locationId, itemIds, variantKey, promo, startsAt)
                 val order = app.placeAndPay.place(PlaceOrderInput(locationId, itemIds, variantKey, startsAt, assetId, promo), newKey())
                 _state.value = _state.value.copy(summary = Load.Ready(CheckoutSummary(d.location.name, items, quote, order.startsAt, order.endsAt, money.currency)), order = order, promoError = null)
                 payKey = newKey()
@@ -192,12 +211,13 @@ class CheckoutViewModel(
 
     fun promoText(v: String) { _state.value = _state.value.copy(promoInput = v.uppercase(), promoError = null) }
 
-    fun applyPromo() {
-        val code = _state.value.promoInput.trim()
+    fun applyPromo(typed: String? = null) {
+        val code = (typed ?: _state.value.promoInput).trim().uppercase()
         if (code.isEmpty()) return
+        if (typed != null) _state.value = _state.value.copy(promoInput = code, promoError = null)
         viewModelScope.launch {
             try {
-                app.customer.quote(locationId, itemIds, variantKey, code)   // validates before we give up the current hold
+                app.customer.quote(locationId, itemIds, variantKey, code, startsAt)   // validates before we give up the current hold
                 _state.value.order?.let { app.bookings.abandon(it.id) }
                 promo = code
                 start()
@@ -273,15 +293,22 @@ fun CheckoutScreen(
                 sum.items.forEach { Labeled(it.name, formatMoney(it.prices[variantKey], sum.currency)) }
                 if (q.feeMinor > 0) Labeled("Convenience fee", formatMoney(q.feeMinor, sum.currency))
                 Labeled("GST (${formatPercent(tenant.money.taxBps)})", formatMoney(q.taxMinor, sum.currency))
-                if (q.discountMinor > 0) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Body("Promo ${q.promoCode}", color = Ind.a700); Body("− ${formatMoney(q.discountMinor, sum.currency)}", color = Ind.a700) }
+                DiscountLines(q.discounts, q.discountMinor, q.promoCode, sum.currency)
                 Box(Modifier.fillMaxWidth().height(1.dp).background(Ind.divider))
                 Labeled("To pay", formatMoney(q.totalMinor, sum.currency), strong = true)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
-                Field("", s.promoInput, vm::promoText, Modifier.weight(1f), placeholder = "Promo code", enabled = q.promoCode == null)
-                if (q.promoCode == null) SecondaryButton("Apply", vm::applyPromo, enabled = s.promoInput.isNotBlank()) else SecondaryButton("Applied · Remove", vm::removePromo)
+                Field("", s.promoInput, vm::promoText, Modifier.weight(1f), placeholder = "Voucher or friend's code", enabled = q.promoCode == null)
+                if (q.promoCode == null) SecondaryButton("Apply", { vm.applyPromo() }, enabled = s.promoInput.isNotBlank()) else SecondaryButton("Applied · Remove", vm::removePromo)
             }
             s.promoError?.let { Body(it, size = 13, color = Ind.danger) }
+            if (q.promoCode == null && s.vouchers.isNotEmpty()) Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Body("Your vouchers", size = 12, color = Ind.muted)
+                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    s.vouchers.forEach { v -> Choice("${v.code} · ${v.description.substringAfter(": ")}", false) { vm.applyPromo(v.code) } }
+                }
+            }
+            q.promotionName?.let { Body("$it is priced in. Only the best offer applies, and a voucher can still be added.", size = 12, color = Ind.muted) }
             Section("Pay with") { METHODS.forEach { (k, l) -> RadioRow(l, s.method == k) { vm.method(k) } } }
             if (allowSimulation) Section("Test only") {
                 RadioRow("Normal", s.test == null, height = 44) { vm.test(null) }
@@ -307,6 +334,21 @@ private fun PaymentPending(order: Order, onCheck: () -> Unit, onSupport: () -> U
         PrimaryButton("Check again", onCheck, height = 52)
         GhostButton("Contact support", onSupport, Modifier.fillMaxWidth())
         GhostButton("Back to the checkout", onBack, Modifier.fillMaxWidth())
+    }
+}
+
+/** Each discount on its own line ("Afternoon happy hour − ₹120", "Code FIRSTWASH − ₹100"). Older bookings only carry a total. */
+@Composable
+fun DiscountLines(lines: List<DiscountLine>, totalMinor: Long, code: String?, currency: String) {
+    val shown = lines.ifEmpty { if (totalMinor > 0) listOf(DiscountLine("VOUCHER", code?.let { "Code $it" } ?: "Discount", totalMinor)) else emptyList() }
+    shown.forEach { d ->
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(if (d.kind == "PROMOTION") Lucide.Zap else if (d.kind == "REFERRAL") Lucide.Gift else Lucide.Tag, null, Modifier.size(14.dp), tint = Ind.a700)
+                Body(d.label, color = Ind.a700)
+            }
+            Body("− ${formatMoney(d.amountMinor, currency)}", color = Ind.a700)
+        }
     }
 }
 
@@ -467,7 +509,7 @@ fun BookingDetailScreen(orderId: String, onBack: () -> Unit, onRate: (String) ->
                 o.lines.forEach { Labeled(it.name, formatMoney(it.priceMinor, tenant.money.currency)) }
                 if (o.feeMinor > 0) Labeled("Convenience fee", formatMoney(o.feeMinor, tenant.money.currency))
                 Labeled("Taxes", formatMoney(o.taxMinor, tenant.money.currency))
-                if (o.discountMinor > 0) Labeled("Promo ${o.promoCode ?: ""}", "− ${formatMoney(o.discountMinor, tenant.money.currency)}")
+                DiscountLines(o.discounts, o.discountMinor, o.promoCode, tenant.money.currency)
                 Labeled("Total paid", formatMoney(o.totalMinor, tenant.money.currency), strong = true)
             }
             if (o.status == tenant.flow.completed) {

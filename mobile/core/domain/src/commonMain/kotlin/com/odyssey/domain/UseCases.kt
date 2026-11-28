@@ -33,7 +33,7 @@ class LoadPlace(private val repo: CustomerRepository) {
 }
 
 class LoadSlots(private val repo: CustomerRepository) {
-    suspend operator fun invoke(locationId: String, date: String, itemIds: List<String>) = repo.slots(locationId, date, itemIds)
+    suspend operator fun invoke(locationId: String, date: String, itemIds: List<String>, variantKey: String? = null) = repo.slots(locationId, date, itemIds, variantKey)
 }
 
 /** Price breakdown shown before the customer pays. The server recomputes the same numbers when the booking is placed. */

@@ -30,14 +30,19 @@ data class PlaceOrderInput(val locationId: String, val itemIds: List<String>, va
 interface CustomerRepository {
     suspend fun search(filters: SearchFilters): List<LocationSummary>
     suspend fun detail(locationId: String, variantKey: String?, lat: Double? = null, lng: Double? = null): LocationDetail
-    suspend fun slots(locationId: String, date: String, itemIds: List<String>): List<Slot>
+    /** Pass [variantKey] to get each slot's price, including any happy-hour deal. */
+    suspend fun slots(locationId: String, date: String, itemIds: List<String>, variantKey: String? = null): List<Slot>
     suspend fun assets(): List<Asset>
     suspend fun addAsset(attributes: Map<String, String>): Asset
     suspend fun deleteAsset(id: String)
     suspend fun placeOrder(input: PlaceOrderInput, idempotencyKey: String): Order
     suspend fun pay(orderId: String, method: String, simulate: String?, idempotencyKey: String): Order
     suspend fun review(orderId: String, rating: Int, comment: String, tags: List<String>)
-    suspend fun quote(locationId: String, itemIds: List<String>, variantKey: String, promoCode: String?): Quote
+    /** [startsAt] lets the quote include a promotion for that slot. [promoCode] may be a voucher or a friend's referral code. */
+    suspend fun quote(locationId: String, itemIds: List<String>, variantKey: String, promoCode: String?, startsAt: String? = null): Quote
+    suspend fun vouchers(): List<Voucher> = emptyList()
+    suspend fun referral(): Referral = throw ApiException("unavailable", "Refer a friend is not available")
+    suspend fun redeemReferral(code: String): Voucher = throw ApiException("unavailable", "Refer a friend is not available")
     suspend fun reschedule(orderId: String, startsAt: String): Order
     suspend fun checkPayment(orderId: String): Order
     suspend fun report(orderId: String, category: String, description: String, photos: List<String>): Ticket
@@ -80,6 +85,9 @@ interface ProviderRepository {
     suspend fun removeStaff(id: String, ownerPin: String)
     suspend fun saveBank(accountName: String, accountNumber: String, ifsc: String, ownerPin: String): Provider
     suspend fun setOwnerPin(newPin: String, currentPin: String?)
+    /** The vendor's own offers, then platform offers at its outlets. */
+    suspend fun promotions(): List<VendorPromotion> = emptyList()
+    suspend fun setPromotionActive(id: String, active: Boolean): VendorPromotion = throw ApiException("unavailable", "Not available")
 }
 
 /** Small persistent key-value storage the apps provide (SharedPreferences, UserDefaults). */

@@ -54,7 +54,7 @@ fun GarageScreen(onAdd: () -> Unit, bottomBar: @Composable () -> Unit) {
 // ---- Account ----
 
 @Composable
-fun AccountScreen(onNotifications: () -> Unit, onFavorites: () -> Unit, onSignOut: () -> Unit, bottomBar: @Composable () -> Unit) {
+fun AccountScreen(onNotifications: () -> Unit, onFavorites: () -> Unit, onSignOut: () -> Unit, bottomBar: @Composable () -> Unit, onRefer: (() -> Unit)? = null) {
     val app = LocalContainer.current
     val customer = LocalCustomer.current
     val user = app.session.collectAsStateValue()?.user
@@ -82,6 +82,7 @@ fun AccountScreen(onNotifications: () -> Unit, onFavorites: () -> Unit, onSignOu
         }
         LinkRow("Notifications", Lucide.Bell, badge = customer.unread.takeIf { it > 0 }?.toString(), onClick = onNotifications)
         LinkRow("Favourites", Lucide.Heart, onClick = onFavorites)
+        onRefer?.let { LinkRow("Refer a friend", Lucide.Gift, onClick = it) }
         SecondaryButton("Sign out", { signOut = true }, Modifier.fillMaxWidth(), danger = true)
         Body("Need help with a booking? Open it and tap Report a problem. We reply within 24 hours.", size = 12, color = Ind.muted)
     }
@@ -104,6 +105,81 @@ private fun LinkRow(label: String, icon: androidx.compose.ui.graphics.vector.Ima
         Icon(icon, null, Modifier.size(20.dp), tint = Ind.a700); Body(label, size = 15, modifier = Modifier.weight(1f))
         if (badge != null) Tag(badge, TagKind.SOLID)
         Icon(Lucide.ChevronRight, null, Modifier.size(18.dp))
+    }
+}
+
+// ---- Refer a friend ----
+
+data class ReferState(val referral: Load<Referral> = Load.Loading, val vouchers: List<Voucher> = emptyList(), val friendCode: String = "", val busy: Boolean = false, val message: String? = null, val error: String? = null)
+
+class ReferViewModel(private val app: AppContainer) : BaseViewModel() {
+    val state = MutableStateFlow(ReferState())
+    private val loaded = MutableStateFlow<Load<Referral>>(Load.Loading)
+    init { run { loaded.collect { state.value = state.value.copy(referral = it) } }; reload() }
+    fun reload() {
+        loaded.load { app.customer.referral() }
+        viewModelScope.launch { runCatching { app.customer.vouchers() }.onSuccess { state.value = state.value.copy(vouchers = it) } }
+    }
+    fun friendCode(v: String) { state.value = state.value.copy(friendCode = v.uppercase().filter { it.isLetterOrDigit() }, error = null) }
+    fun redeem() {
+        val code = state.value.friendCode
+        if (code.isBlank() || state.value.busy) return
+        state.value = state.value.copy(busy = true, error = null, message = null)
+        viewModelScope.launch {
+            try {
+                val v = app.customer.redeemReferral(code)
+                state.value = state.value.copy(busy = false, friendCode = "", message = "Added ${v.code}: ${v.description.substringAfter(": ")}. It is applied when you pick it at checkout.")
+                reload()
+            } catch (e: Exception) { state.value = state.value.copy(busy = false, error = e.friendly()) }
+        }
+    }
+}
+
+/** The customer's own code to share, what friends get, what they earn, and their vouchers. */
+@Composable
+fun ReferScreen(onBack: () -> Unit) {
+    val app = LocalContainer.current
+    val platform = LocalPlatform.current
+    val tenant = LocalTenant.current
+    val vm = screenModel("refer") { ReferViewModel(app) }
+    val s = vm.state.collectAsStateValue()
+    Screen("Refer a friend", onBack = onBack) {
+        Remote(s.referral, vm::reload) { r ->
+            if (!r.enabled) EmptyState(Lucide.Gift, "Referrals are paused", "Vouchers you already have still work. Check back soon.")
+            else {
+                Heading("Give ${r.welcomeText}, get ${r.rewardText}", 26)
+                Body("Your friend gets ${r.welcomeText} on their first booking with your code. You get ${r.rewardText} once they have finished it.", size = 14, color = Ind.muted)
+                Column(Modifier.fillMaxWidth().padding(6.dp).blueprint().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Body("Your code", size = 12, color = Ind.muted)
+                    Heading(r.code, 34)
+                    PrimaryButton("Share your code", { platform.shareText("${tenant.tenant.name}: a gift for your first booking", r.shareText) })
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("Joined" to r.invited, "Rewarded" to r.rewarded, "Waiting" to r.pending).forEach { (label, n) ->
+                        Column(Modifier.weight(1f).hairline().padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) { Heading(n.toString(), 22); Body(label, size = 12, color = Ind.muted) }
+                    }
+                }
+                if (r.pending > 0) Body("Friends who are waiting have joined but not finished their first booking yet.", size = 12, color = Ind.muted)
+            }
+            Section("Your vouchers") {
+                if (s.vouchers.isEmpty()) Body("Vouchers you earn show here. Pick one at checkout to use it.", size = 13, color = Ind.muted)
+                s.vouchers.forEach { v ->
+                    Row(Modifier.fillMaxWidth().hairline().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Icon(Lucide.Ticket, null, Modifier.size(20.dp), tint = Ind.a700)
+                        Column(Modifier.weight(1f)) { Body(v.description.substringAfter(": ").ifBlank { v.code }, weight = FontWeight.Medium); Body("${v.code}${v.expiresAt?.let { " · use by ${formatDay(it)}" } ?: ""}", size = 12, color = Ind.muted) }
+                    }
+                }
+            }
+            if (r.enabled && !r.usedFriendCode) Section("Got a code from a friend?") {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
+                    Field("", s.friendCode, vm::friendCode, Modifier.weight(1f), placeholder = "Friend's code")
+                    SecondaryButton(if (s.busy) "Adding…" else "Add", vm::redeem, enabled = s.friendCode.isNotBlank() && !s.busy)
+                }
+                Body("Only for your first booking. You can also type it at checkout.", size = 12, color = Ind.muted)
+            }
+            s.error?.let { ErrorBox(it) }
+            s.message?.let { Body(it, color = Ind.a700, weight = FontWeight.Medium) }
+        }
     }
 }
 

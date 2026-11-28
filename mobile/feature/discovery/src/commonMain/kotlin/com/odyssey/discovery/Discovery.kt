@@ -155,6 +155,7 @@ fun PlaceCard(p: LocationSummary, onClick: () -> Unit) {
                 M3Icon(Lucide.Star, null, Modifier.size(14.dp)); Spacer(Modifier.width(3.dp)); Body(if (p.ratingCount > 0) p.ratingAvg.toString() else "New", size = 13, weight = FontWeight.Medium)
             }
             Body("${areaOf(p.address)} · ${p.distanceKm} km", size = 12, color = Ind.muted)
+            p.deal?.let { Tag(if (p.dealNow) "Now · $it" else it, if (p.dealNow) TagKind.SOLID else TagKind.ACCENT, Lucide.Zap) }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (p.priceFromMinor != null) Row { Body("From ", size = 13); Body(formatMoney(p.priceFromMinor, money.currency), size = 13, weight = FontWeight.SemiBold) }
                 Spacer(Modifier.weight(1f))

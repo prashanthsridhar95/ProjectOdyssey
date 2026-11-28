@@ -13,7 +13,9 @@ import kotlinx.serialization.json.JsonElement
 @Serializable internal data class PayBody(val method: String, val simulate: String? = null)
 @Serializable internal data class ActionBody(val action: String, val note: String? = null)
 @Serializable internal data class ReviewBody(val rating: Int, val comment: String, val tags: List<String> = emptyList())
-@Serializable internal data class QuoteBody(val locationId: String, val itemIds: List<String>, val variantKey: String, val promoCode: String? = null)
+@Serializable internal data class QuoteBody(val locationId: String, val itemIds: List<String>, val variantKey: String, val promoCode: String? = null, val startsAt: String? = null)
+@Serializable internal data class RedeemBody(val code: String)
+@Serializable internal data class ActiveBody(val active: Boolean)
 @Serializable internal data class RescheduleBody(val startsAt: String)
 @Serializable internal data class ReportBody(val category: String, val description: String, val photos: List<String>)
 @Serializable internal data class BlockBody(val startsAt: String, val endsAt: String, val reason: String, val bays: List<Int>? = null, val repeat: String = "NONE")
@@ -48,8 +50,8 @@ class CustomerRepositoryImpl(private val api: ApiClient) : CustomerRepository {
             "minRating" to filters.minRating.takeIf { it > 0 }, "services" to filters.services.takeIf { it.isNotEmpty() }?.joinToString(","), "amenities" to filters.amenities.takeIf { it.isNotEmpty() }?.joinToString(",")),
     )
     override suspend fun detail(locationId: String, variantKey: String?, lat: Double?, lng: Double?): LocationDetail = api.get("/locations/$locationId", mapOf("variant" to variantKey, "lat" to lat, "lng" to lng))
-    override suspend fun slots(locationId: String, date: String, itemIds: List<String>): List<Slot> =
-        api.get("/locations/$locationId/availability", mapOf("date" to date, "itemIds" to itemIds.joinToString(",")))
+    override suspend fun slots(locationId: String, date: String, itemIds: List<String>, variantKey: String?): List<Slot> =
+        api.get("/locations/$locationId/availability", mapOf("date" to date, "itemIds" to itemIds.joinToString(","), "variant" to variantKey))
     override suspend fun assets(): List<Asset> = api.get("/assets")
     override suspend fun addAsset(attributes: Map<String, String>): Asset = api.post("/assets", AssetBody(attributes))
     override suspend fun deleteAsset(id: String) = api.delete("/assets/$id")
@@ -58,7 +60,10 @@ class CustomerRepositoryImpl(private val api: ApiClient) : CustomerRepository {
     override suspend fun pay(orderId: String, method: String, simulate: String?, idempotencyKey: String): Order =
         api.post("/orders/$orderId/pay", PayBody(method, simulate), idempotencyKey = idempotencyKey)
     override suspend fun review(orderId: String, rating: Int, comment: String, tags: List<String>) { api.post<ReviewBody, JsonElement>("/orders/$orderId/review", ReviewBody(rating, comment, tags)) }
-    override suspend fun quote(locationId: String, itemIds: List<String>, variantKey: String, promoCode: String?): Quote = api.post("/quote", QuoteBody(locationId, itemIds, variantKey, promoCode))
+    override suspend fun quote(locationId: String, itemIds: List<String>, variantKey: String, promoCode: String?, startsAt: String?): Quote = api.post("/quote", QuoteBody(locationId, itemIds, variantKey, promoCode, startsAt))
+    override suspend fun vouchers(): List<Voucher> = api.get("/me/vouchers")
+    override suspend fun referral(): Referral = api.get("/me/referral")
+    override suspend fun redeemReferral(code: String): Voucher = api.post("/me/referral/redeem", RedeemBody(code.trim().uppercase()))
     override suspend fun reschedule(orderId: String, startsAt: String): Order = api.post("/orders/$orderId/reschedule", RescheduleBody(startsAt))
     override suspend fun checkPayment(orderId: String): Order = api.post("/orders/$orderId/payment/check", RescheduleBody(""))
     override suspend fun report(orderId: String, category: String, description: String, photos: List<String>): Ticket = api.post("/orders/$orderId/report", ReportBody(category, description, photos))
@@ -105,6 +110,8 @@ class ProviderRepositoryImpl(private val api: ApiClient) : ProviderRepository {
     override suspend fun removeStaff(id: String, ownerPin: String) = api.delete("/provider/staff/$id", ownerPin)
     override suspend fun saveBank(accountName: String, accountNumber: String, ifsc: String, ownerPin: String): Provider = api.put("/provider/bank", BankBody(accountName, accountNumber, ifsc), ownerPin)
     override suspend fun setOwnerPin(newPin: String, currentPin: String?) { api.putUnit("/provider/owner-pin", OwnerPinBody(newPin, currentPin)) }
+    override suspend fun promotions(): List<VendorPromotion> = api.get("/provider/promotions")
+    override suspend fun setPromotionActive(id: String, active: Boolean): VendorPromotion = api.put("/provider/promotions/$id/active", ActiveBody(active))
 }
 
 class AdminRepositoryImpl(private val api: ApiClient) : AdminRepository {

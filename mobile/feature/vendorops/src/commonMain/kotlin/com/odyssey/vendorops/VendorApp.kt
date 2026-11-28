@@ -37,6 +37,7 @@ sealed interface VRoute {
     data object Bank : VRoute
     data object OwnerPin : VRoute
     data object Earnings : VRoute
+    data object Promotions : VRoute
 }
 
 private enum class VTab(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
@@ -202,7 +203,7 @@ private fun VendorHome(user: User) {
                         VTab.MENU -> MenuScreen(loc.id, owner, onEdit = { nav.push(VRoute.EditItem(it)) })
                         VTab.EARNINGS -> EarningsScreen(report)
                         VTab.MORE -> MoreScreen(p, user, unreplied, onEarnings = if (owner && !live) ({ nav.push(VRoute.Earnings) }) else null, onReviews = { nav.push(VRoute.Reviews) },
-                            onOutlet = { nav.push(VRoute.Outlet) }, onStaff = { nav.push(VRoute.Staff) }, onBank = { nav.push(VRoute.Bank) }, onPin = { nav.push(VRoute.OwnerPin) }, onLock = { app.locked.value = true })
+                            onOutlet = { nav.push(VRoute.Outlet) }, onStaff = { nav.push(VRoute.Staff) }, onBank = { nav.push(VRoute.Bank) }, onPin = { nav.push(VRoute.OwnerPin) }, onLock = { app.locked.value = true }, onPromotions = { nav.push(VRoute.Promotions) })
                     }
                 }
                 IndSnackbarHost(snack)
@@ -217,6 +218,7 @@ private fun VendorHome(user: User) {
             VRoute.Staff -> StaffScreen(onBack = { nav.pop() }, report = report, onChanged = vm::reload)
             VRoute.Bank -> BankScreen(p, onBack = { nav.pop() }, onSaved = vm::reload, report = report)
             VRoute.OwnerPin -> OwnerPinScreen(onBack = { nav.pop() }, report = report)
+            VRoute.Promotions -> PromotionsScreen(p, user, onBack = { nav.pop() }, report = report)
             VRoute.Earnings -> Column(Modifier.fillMaxSize()) { Row(Modifier.statusBarsPadding().padding(start = 20.dp, top = 8.dp)) { Icon(Lucide.ArrowLeft, "Back", Modifier.size(24.dp).clickable { nav.pop() }) }; Box(Modifier.weight(1f)) { EarningsScreen(report) } }
         }
         if (nav.current != VRoute.Tabs) IndSnackbarHost(snack)

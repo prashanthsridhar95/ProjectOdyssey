@@ -35,7 +35,7 @@ class ProviderReports(private val r: Repos, private val clock: Clock) {
         val sums = r.ledger.sumByAccount(orders.map { it.id })
         val net = -(sums[Accounts.PROVIDER_PAYABLE] ?: 0L)
         val fee = -(sums[Accounts.GATEWAY_FEE] ?: 0L)
-        val service = orders.sumOf { it.subtotalMinor }
+        val service = orders.sumOf { it.subtotalMinor - it.vendorDiscountMinor }
         val commission = orders.sumOf { it.commissionMinor }
         val unpaid = r.orders.settledUnpaid(provider.id)
         val pending = -(r.ledger.sumByAccount(unpaid.map { it.id })[Accounts.PROVIDER_PAYABLE] ?: 0L)
@@ -54,7 +54,7 @@ class ProviderReports(private val r: Repos, private val clock: Clock) {
         fun q(s: String) = "\"" + s.replace("\"", "\"\"") + "\""
         val rows = orders.map { o ->
             val sums = r.ledger.sumByAccount(listOf(o.id))
-            listOf(o.code, o.startsAt.toString(), q(o.customerName), q(o.lines.joinToString("; ") { it.name }), o.subtotalMinor / 100.0, o.commissionMinor / 100.0, -(sums[Accounts.GATEWAY_FEE] ?: 0L) / 100.0, -(sums[Accounts.PROVIDER_PAYABLE] ?: 0L) / 100.0).joinToString(",")
+            listOf(o.code, o.startsAt.toString(), q(o.customerName), q(o.lines.joinToString("; ") { it.name }), (o.subtotalMinor - o.vendorDiscountMinor) / 100.0, o.commissionMinor / 100.0, -(sums[Accounts.GATEWAY_FEE] ?: 0L) / 100.0, -(sums[Accounts.PROVIDER_PAYABLE] ?: 0L) / 100.0).joinToString(",")
         }
         return (listOf("code,start,customer,services,service_amount,commission,gateway_fee,net") + rows).joinToString("\n")
     }

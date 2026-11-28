@@ -47,7 +47,7 @@ paths:
   /auth/pin: { post: { summary: Counter staff sign in with phone + 4-digit PIN, security: [], responses: { '200': { description: OK } } } }
   /locations: { get: { summary: Places near a point (lat, lng, sort, q, variant, openNow, maxPrice), security: [], responses: { '200': { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/LocationSummary' } } } } } } } }
   /locations/{id}: { get: { summary: Place with services and reviews, security: [], responses: { '200': { description: OK } } } }
-  /locations/{id}/availability: { get: { summary: Slots for a day (date, itemIds), security: [], responses: { '200': { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Slot' } } } } } } } }
+  /locations/{id}/availability: { get: { summary: 'Slots for a day (date, itemIds, variant). With itemIds each slot has priceMinor before tax, originalPriceMinor and a deal label when a happy hour or date discount applies', security: [], responses: { '200': { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Slot' } } } } } } } }
   /orders:
     get: { summary: My orders (customer), responses: { '200': { description: OK } } }
     post: { summary: Place an order and hold the slot, parameters: [{ $ref: '#/components/parameters/Idempotency' }], responses: { '201': { description: Held, content: { application/json: { schema: { $ref: '#/components/schemas/Order' } } } }, '409': { description: Slot no longer available } } }
@@ -70,4 +70,19 @@ paths:
   /admin/payouts/run: { post: { summary: Pay vendors for completed orders not yet paid out, responses: { '200': { description: OK } } } }
   /admin/billing: { get: { summary: Platform subscription statement for a month, responses: { '200': { description: OK } } } }
   /admin/config: { get: { summary: Tenant rules, responses: { '200': { description: OK } } }, put: { summary: Update tenant rules, responses: { '200': { description: OK } } } }
+  /quote: { post: { summary: 'Price breakdown for a basket. Pass startsAt to include the best promotion for that slot; promoCode may be a voucher or a friend''s referral code. Returns each discount line', responses: { '200': { description: OK } } } }
+  /me/vouchers: { get: { summary: 'Personal vouchers the customer can still use (referral welcome and thank-you vouchers)', responses: { '200': { description: OK } } } }
+  /me/referral: { get: { summary: 'The customer''s referral code, share text, reward terms and counts', responses: { '200': { description: OK } } } }
+  /me/referral/redeem: { post: { summary: 'Use a friend''s code before the first booking; adds a welcome voucher', responses: { '201': { description: Voucher added }, '400': { description: Own code, already used one, or already booked } } } }
+  /provider/promotions: { get: { summary: 'The vendor''s happy hours and date discounts, then platform offers at its outlets (read-only)', responses: { '200': { description: OK } } }, post: { summary: 'Create an offer (owner, Owner PIN). The vendor funds it', parameters: [{ $ref: '#/components/parameters/OwnerPin' }], responses: { '201': { description: Created } } } }
+  /provider/promotions/{id}: { put: { summary: 'Change an offer (owner, Owner PIN)', responses: { '200': { description: OK } } }, delete: { summary: 'Delete an offer (owner, Owner PIN)', responses: { '204': { description: Deleted } } } }
+  /provider/promotions/{id}/active: { put: { summary: 'Pause or resume (owner or manager, no PIN)', responses: { '200': { description: OK } } } }
+  /admin/promotions: { get: { summary: 'Every offer with usage', responses: { '200': { description: OK } } }, post: { summary: 'Create a platform-funded offer for every outlet', responses: { '201': { description: Created } } } }
+  /admin/promotions/{id}: { put: { summary: 'Change a platform offer', responses: { '200': { description: OK } } }, delete: { summary: 'Delete a platform offer (vendor offers can only be paused)', responses: { '204': { description: Deleted } } } }
+  /admin/promotions/{id}/active: { put: { summary: 'Pause or resume any offer', responses: { '200': { description: OK } } } }
+  /admin/promos: { get: { summary: 'Voucher codes with uses and discount given', responses: { '200': { description: OK } } }, post: { summary: 'Create or change a code: value, minimum, maximum, dates, total and per-customer limits, fundedBy VENDOR (needs providerId) or PLATFORM', responses: { '201': { description: Saved } } } }
+  /admin/promos/{code}/active: { put: { summary: 'Pause or resume a code', responses: { '204': { description: OK } } } }
+  /admin/referrals: { get: { summary: 'Referral settings, counts, cost and recent referrals', responses: { '200': { description: OK } } } }
+  /admin/referrals/settings: { put: { summary: 'Turn refer-a-friend on or off and set both rewards', responses: { '200': { description: OK } } } }
+  /admin/discounts/summary: '{ get: { summary: Discounts on live bookings split by who paid (vendor or platform) and by kind', responses: { '200': { description: OK } } } }
   /webhooks/payments: { post: { summary: Gateway callback, signed with X-Signature (HMAC-SHA256 of the body), security: [], responses: { '200': { description: OK }, '401': { description: Bad signature } } } }

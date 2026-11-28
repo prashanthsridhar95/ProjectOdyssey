@@ -35,6 +35,7 @@ sealed interface Route {
     data class AddVehicle(val step: String?) : Route
     data object Notifications : Route
     data object Favorites : Route
+    data object Refer : Route
 }
 
 
@@ -123,7 +124,7 @@ private fun CustomerApp(tenantName: String, allowSimulation: Boolean, onReady: (
                     0 -> HomeScreen(onOpen = { nav.push(Route.Place(it)) }, onChangePlace = { choosingPlace = true }, onOpenNotifications = { nav.push(Route.Notifications) }, onNeedVehicle = { nav.push(Route.AddVehicle(null)) })
                     1 -> BookingsScreen(onOpen = { nav.push(Route.Booking(it)) }, onRebook = { nav.push(Route.Place(it)) }, onReschedule = { nav.push(Route.Reschedule(it)) }, bottomBar = {})
                     2 -> GarageScreen(onAdd = { nav.push(Route.AddVehicle(null)) }, bottomBar = {})
-                    else -> AccountScreen(onNotifications = { nav.push(Route.Notifications) }, onFavorites = { nav.push(Route.Favorites) }, onSignOut = app::logout, bottomBar = {})
+                    else -> AccountScreen(onNotifications = { nav.push(Route.Notifications) }, onFavorites = { nav.push(Route.Favorites) }, onSignOut = app::logout, bottomBar = {}, onRefer = { nav.push(Route.Refer) })
                 }
             }
             if (!wide) BottomTabs(TABS, tab) { tab = it }
@@ -149,6 +150,7 @@ private fun CustomerApp(tenantName: String, allowSimulation: Boolean, onReady: (
         is Route.AddVehicle -> LocalVertical.current!!.AssetForm(r.step, onBack = if (r.step == null) ({ nav.pop() }) else null, onSaved = { if (r.step != null) nav.reset(Route.Tabs) else nav.pop() })
         Route.Notifications -> NotificationsScreen(onBack = { nav.pop() }, onOpenOrder = { nav.push(Route.Booking(it)) })
         Route.Favorites -> FavoritesScreen(onBack = { nav.pop() }, onOpen = { nav.push(Route.Place(it)) })
+        Route.Refer -> ReferScreen(onBack = { nav.pop() })
     } }
     if (wide) {
         // Desktop browsers and tablets: a side rail instead of the bottom tabs, and each screen kept to a readable width.

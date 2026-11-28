@@ -55,6 +55,8 @@ data class LocationSummary(
     val lat: Double, val lng: Double, val distanceKm: Double, val priceFromMinor: Long? = null, val nextFreeAt: String? = null,
     val openNow: Boolean = false, val ratingAvg: Double = 0.0, val ratingCount: Int = 0, val amenities: List<String> = emptyList(),
     val photoUrl: String? = null, val openTime: String = "", val closeTime: String = "", val phone: String? = null,
+    /** A deal badge such as "20% off · 2–4 pm"; [dealNow] is true while it is running. */
+    val deal: String? = null, val dealNow: Boolean = false,
 )
 
 @Serializable
@@ -62,7 +64,13 @@ data class Item(val id: String, val name: String, val description: String = "", 
 
 @Serializable data class Review(val id: String, val customerName: String, val rating: Int, val comment: String = "", val createdAt: String, val tags: List<String> = emptyList())
 @Serializable data class LocationDetail(val location: LocationSummary, val items: List<Item> = emptyList(), val reviews: List<Review> = emptyList())
-@Serializable data class Slot(val startsAt: String, val endsAt: String, val free: Int, val bookable: Boolean)
+/** With services chosen, [priceMinor] is the price at this time before tax; [deal] names the offer when it is below [originalPriceMinor]. */
+@Serializable data class Slot(val startsAt: String, val endsAt: String, val free: Int, val bookable: Boolean, val priceMinor: Long? = null, val originalPriceMinor: Long? = null, val deal: String? = null) {
+    val discounted: Boolean get() = priceMinor != null && originalPriceMinor != null && priceMinor < originalPriceMinor
+}
+
+/** One discount on a booking. [kind] is PROMOTION, VOUCHER or REFERRAL; [funder] (VENDOR or PLATFORM) is only sent to vendors and admins. */
+@Serializable data class DiscountLine(val kind: String, val label: String, val amountMinor: Long, val funder: String? = null)
 
 @Serializable data class OrderLine(val itemId: String, val name: String, val priceMinor: Long, val durationMinutes: Int)
 
@@ -77,6 +85,7 @@ data class Order(
     val discountMinor: Long = 0, val promoCode: String? = null, val paymentPending: Boolean = false, val reschedules: Int = 0,
     val bay: Int? = null, val acceptBy: String? = null,
     val locationPhone: String? = null, val locationAddress: String? = null, val locationLat: Double? = null, val locationLng: Double? = null,
+    val discounts: List<DiscountLine> = emptyList(), val vendorDiscountMinor: Long? = null,
 )
 
 @Serializable data class OrderEvent(val from: String? = null, val to: String, val action: String, val note: String? = null, val at: String, val by: String? = null)
@@ -85,7 +94,20 @@ data class Order(
 @Serializable data class Asset(val id: String, val kind: String, val label: String, val attributes: Map<String, String> = emptyMap())
 
 @Serializable
-data class Quote(val subtotalMinor: Long, val taxMinor: Long, val feeMinor: Long, val discountMinor: Long, val totalMinor: Long, val promoCode: String? = null, val promoDescription: String? = null)
+data class Quote(
+    val subtotalMinor: Long, val taxMinor: Long, val feeMinor: Long, val discountMinor: Long, val totalMinor: Long, val promoCode: String? = null, val promoDescription: String? = null,
+    val discounts: List<DiscountLine> = emptyList(), val promotionName: String? = null,
+)
+
+/** A personal voucher the customer holds (a referral welcome or thank-you). */
+@Serializable data class Voucher(val code: String, val description: String, val kind: String, val value: Long, val maxDiscountMinor: Long? = null, val minSubtotalMinor: Long = 0, val expiresAt: String? = null, val source: String = "")
+
+/** The customer's refer-a-friend code and how it is going. */
+@Serializable
+data class Referral(
+    val enabled: Boolean = true, val code: String, val shareText: String, val welcomeText: String, val rewardText: String,
+    val invited: Int = 0, val rewarded: Int = 0, val pending: Int = 0, val usedFriendCode: Boolean = false,
+)
 
 @Serializable data class SavedPlace(val label: String, val address: String, val lat: Double, val lng: Double)
 @Serializable data class AppNotification(val id: String, val title: String, val body: String, val orderId: String? = null, val read: Boolean = false, val createdAt: String)
@@ -127,6 +149,13 @@ data class EarningsReport(
 @Serializable data class ProviderReview(val id: String, val customerName: String, val rating: Int, val comment: String = "", val createdAt: String, val tags: List<String> = emptyList(), val reply: String? = null, val replyAt: String? = null)
 /** What a vendor can change about an outlet; null leaves a field as it is. */
 @Serializable data class LocationUpdate(val openTime: String? = null, val closeTime: String? = null, val slotMinutes: Int? = null, val capacity: Int? = null, val autoAccept: Boolean? = null, val open: Boolean? = null)
+/** A happy hour or date discount as the vendor app shows it. [status] is LIVE, SCHEDULED, PAUSED or ENDED. */
+@Serializable
+data class VendorPromotion(
+    val id: String, val providerId: String? = null, val providerName: String? = null, val type: String, val name: String, val summary: String, val badge: String = "",
+    val status: String, val active: Boolean, val fundedBy: String = "VENDOR", val editable: Boolean = false, val bookings: Int = 0, val discountGivenMinor: Long = 0,
+    val locationIds: List<String> = emptyList(),
+)
 @Serializable data class RosterEntry(val id: String, val name: String, val phone: String, val role: Role)
 
 @Serializable data class DayPoint(val date: String, val gmvMinor: Long)
