@@ -4,13 +4,13 @@ import com.odyssey.domain.KeyValueStore
 import com.odyssey.domain.Session
 import com.odyssey.domain.SessionStore
 
-@JsFun("(k) => window.lsGet(k)")
+@JsFun("(k) => window.localStorage.getItem(k)")
 private external fun lsGet(key: String): String?
 
-@JsFun("(k, v) => window.lsSet(k, v)")
+@JsFun("(k, v) => window.localStorage.setItem(k, v)")
 private external fun lsSet(key: String, value: String)
 
-@JsFun("(k) => window.lsRemove(k)")
+@JsFun("(k) => window.localStorage.removeItem(k)")
 private external fun lsRemove(key: String)
 
 /** Keeps the signed-in session in the browser's localStorage, so a refresh does not sign the customer out. */

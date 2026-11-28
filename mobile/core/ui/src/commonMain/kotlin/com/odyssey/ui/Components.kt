@@ -147,11 +147,11 @@ fun Field(
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (label.isNotEmpty()) Body(label, size = 12, color = Ind.muted)
         BasicTextField(
-            value, onChange, Modifier.fillMaxWidth().then(if (multiline) Modifier.heightIn(min = 100.dp) else Modifier.height(height.dp)).then(if (bare) Modifier else Modifier.background(Ind.surface).hairline()).padding(horizontal = if (bare) 0.dp else 10.dp, vertical = if (multiline) 10.dp else 0.dp),
+            value, onChange, Modifier.fillMaxWidth().then(if (multiline) Modifier.heightIn(min = 100.dp, max = 220.dp) else Modifier.height(height.dp)).then(if (bare) Modifier else Modifier.background(Ind.surface).hairline()).padding(horizontal = if (bare) 0.dp else 10.dp, vertical = if (multiline) 10.dp else 0.dp),
             enabled = enabled, singleLine = !multiline, textStyle = TextStyle(fontFamily = LocalFonts.current.body, fontSize = 16.sp, color = Ind.text),
             keyboardOptions = KeyboardOptions(keyboardType = keyboard), visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
             cursorBrush = SolidColor(Ind.accent),
-            decorationBox = { inner -> Box(Modifier.fillMaxHeight(), contentAlignment = if (multiline) Alignment.TopStart else Alignment.CenterStart) { if (value.isEmpty() && placeholder.isNotEmpty()) Body(placeholder, size = 16, color = Ind.mutedSoft); inner() } },
+            decorationBox = { inner -> Box(if (multiline) Modifier.fillMaxWidth() else Modifier.fillMaxHeight(), contentAlignment = if (multiline) Alignment.TopStart else Alignment.CenterStart) { if (value.isEmpty() && placeholder.isNotEmpty()) Body(placeholder, size = 16, color = Ind.mutedSoft); inner() } },
         )
         if (supporting != null) Body(supporting, size = 12, color = Ind.muted)
     }
@@ -159,7 +159,7 @@ fun Field(
 
 /** Six boxes for a one-time code, one digit each; the box being typed into is outlined in the accent. */
 @Composable
-fun CodeBoxes(value: String, length: Int = 6, onChange: (String) -> Unit) {
+fun CodeBoxes(value: String, length: Int = 6, secret: Boolean = false, onChange: (String) -> Unit) {
     BasicTextField(
         value, { onChange(it.filter(Char::isDigit).take(length)) }, Modifier.fillMaxWidth(),
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword), cursorBrush = SolidColor(Color.Transparent), textStyle = TextStyle(color = Color.Transparent),
@@ -167,7 +167,7 @@ fun CodeBoxes(value: String, length: Int = 6, onChange: (String) -> Unit) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 repeat(length) { i ->
                     Box(Modifier.weight(1f).height(48.dp).background(Ind.surface).border(1.dp, if (i == value.length) Ind.accent else Ind.divider), contentAlignment = Alignment.Center) {
-                        Heading(value.getOrNull(i)?.toString() ?: "", 22)
+                        Heading(value.getOrNull(i)?.let { if (secret) "•" else it.toString() } ?: "", 22)
                     }
                 }
             }
@@ -207,14 +207,30 @@ fun SquareToggle(on: Boolean, onChange: (Boolean) -> Unit) {
 
 data class TabItem(val label: String, val icon: ImageVector)
 
-/** Bottom tab bar: icon over label, accent when selected, hairline on top. */
+/**
+ * Bottom tab bar. The bar is 64dp tall and the system gesture area is added below it, never taken out of it, so the
+ * icons are never pushed onto the home indicator. The selected tab gets an accent bar on top, a tinted icon well and a
+ * bold label, so the current place reads at a glance and not by colour alone.
+ */
 @Composable
 fun BottomTabs(items: List<TabItem>, selected: Int, onSelect: (Int) -> Unit) {
-    Row(Modifier.fillMaxWidth().height(72.dp).background(Ind.bg).topHairline().navigationBarsPadding()) {
-        items.forEachIndexed { i, t ->
-            val c = if (i == selected) Ind.a700 else Ind.muted
-            Column(Modifier.weight(1f).fillMaxHeight().clickable { onSelect(i) }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically)) {
-                Icon(t.icon, null, Modifier.size(22.dp), tint = c); Body(t.label, size = 11, color = c, weight = if (i == selected) FontWeight.Medium else FontWeight.Normal)
+    Column(Modifier.fillMaxWidth().background(Ind.bg).topHairline().navigationBarsPadding()) {
+        Row(Modifier.fillMaxWidth().height(64.dp)) {
+            items.forEachIndexed { i, t ->
+                val on = i == selected
+                Box(
+                    Modifier.weight(1f).fillMaxHeight()
+                        .clickable(onClickLabel = t.label, role = androidx.compose.ui.semantics.Role.Tab) { onSelect(i) }
+                        .drawBehind { if (on) drawRect(Ind.accent, size = androidx.compose.ui.geometry.Size(size.width * 0.5f, 3.dp.toPx()), topLeft = androidx.compose.ui.geometry.Offset(size.width * 0.25f, 0f)) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Box(Modifier.width(52.dp).height(28.dp).background(if (on) Ind.a100 else Color.Transparent), Alignment.Center) {
+                            Icon(t.icon, null, Modifier.size(22.dp), tint = if (on) Ind.a800 else Ind.muted)
+                        }
+                        Body(t.label, size = 12, color = if (on) Ind.a800 else Ind.muted, weight = if (on) FontWeight.SemiBold else FontWeight.Medium)
+                    }
+                }
             }
         }
     }
@@ -232,7 +248,7 @@ fun PinDialog(title: String = "Owner PIN", error: String?, onConfirm: (String) -
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Body("This action is protected. Enter the 6-digit Owner PIN.")
-                CodeBoxes(pin, 6) { pin = it }
+                CodeBoxes(pin, 6, secret = true) { pin = it }
                 if (error != null) Body(error, color = Ind.danger)
             }
         },

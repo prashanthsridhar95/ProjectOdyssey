@@ -1,53 +1,83 @@
 import { useEffect, useState } from 'react'
-import { dateTime, messageOf, money } from '@odyssey/api'
+import { dateOnly, dateTime, messageOf, money, useSession } from '@odyssey/api'
 import type { Earnings, Payout } from '@odyssey/api'
-import { useSession } from '@odyssey/api'
-import { Card, Empty, ErrorNote, PageHeader, Spinner, Stat, Table } from '@odyssey/ui'
+import { Button, Card, DataTable, EmptyState, ErrorNote, Icon, KpiStrip, Notice, PageHeader, Segmented, StatusBadge, downloadText, useToast } from '@odyssey/ui'
 import { useWithPin } from '../pin'
+
+const RANGES = [['week', 'This week'], ['month', 'This month'], ['all', 'All time']] as const
 
 /** Money screens are behind the Owner PIN. */
 export function EarningsPage() {
   const { api } = useSession()
   const withPin = useWithPin()
+  const toast = useToast()
+  const [range, setRange] = useState<(typeof RANGES)[number][0]>('month')
   const [data, setData] = useState<{ e: Earnings; p: Payout[] } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
 
-  async function unlock() {
-    setError(null)
+  async function unlock(r = range) {
+    setError(null); setBusy(true)
     try {
-      const r = await withPin(async (pin) => ({ e: await api.provider.earnings(pin), p: await api.provider.payouts(pin) }), 'Owner PIN to view earnings')
-      if (r) setData(r)
-    } catch (e) { setError(messageOf(e)) }
+      const res = await withPin(async (pin) => ({ e: await api.provider.earnings(pin, r), p: await api.provider.payouts(pin) }), 'Owner PIN to see earnings')
+      if (res) setData(res)
+    } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
   async function download() {
     try {
-      const csv = await withPin((pin) => api.provider.statement(pin, 'month'), 'Owner PIN to download statement')
-      if (csv) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = 'statement.csv'; a.click() }
-    } catch (e) { setError(messageOf(e)) }
+      const csv = await withPin((pin) => api.provider.statement(pin, range === 'all' ? 'month' : range), 'Owner PIN to download the statement')
+      if (csv) { downloadText(`statement-${new Date().toISOString().slice(0, 7)}.csv`, csv); toast('Statement downloaded') }
+    } catch (e) { toast(messageOf(e), true) }
   }
   useEffect(() => { void unlock() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!data) return <><PageHeader title="Earnings" /><ErrorNote message={error} />{!error && <Spinner />}<button className="btn" onClick={unlock}>Enter PIN</button></>
+  if (!data) return (
+    <>
+      <PageHeader title="Earnings" />
+      <ErrorNote message={error} />
+      <Card>
+        <div className="lockcard">
+          <div className="glyph"><Icon name="lock" size={22} /></div>
+          <h2>Earnings are locked</h2>
+          <p className="muted" style={{ maxWidth: 380 }}>Only the owner can see earnings, payouts and statements. Enter your Owner PIN to continue.</p>
+          <Button variant="primary" busy={busy} onClick={() => void unlock()}>Enter PIN</Button>
+        </div>
+      </Card>
+    </>
+  )
   const { e, p } = data
   return (
     <>
-      <PageHeader title="Earnings" subtitle="Completed bookings, after the platform's commission" actions={<button className="btn" onClick={download}>Download statement (CSV)</button>} />
-      <div className="grid cols-4">
-        <Stat label="Completed bookings" value={e.orders} />
-        <Stat label="Service value" value={money(e.serviceMinor)} />
-        <Stat label={`Commission (${(e.commissionBps / 100).toFixed(1)}%)`} value={money(e.commissionMinor)} />
-        <Stat label="Payment fees" value={money(e.gatewayFeeMinor)} />
-        <Stat label="Your net earnings" value={money(e.netMinor)} />
-        <Stat label="Paid out" value={money(e.paidOutMinor)} />
-        <Stat label="Waiting for payout" value={money(e.pendingMinor)} hint={`Next payout ${e.nextPayoutDate}${e.bankMasked ? ' to ' + e.bankMasked : ''}`} />
+      <PageHeader title="Earnings" subtitle="Completed bookings, after the platform's commission and payment fees"
+        actions={<><Segmented label="Period" options={RANGES} value={range} onChange={(r) => { setRange(r); void unlock(r) }} /><Button icon="download" onClick={download}>Statement</Button></>} />
+      <KpiStrip items={[
+        { label: 'Your net earnings', icon: 'wallet', value: money(e.netMinor), foot: `${e.orders} completed bookings` },
+        { label: 'Waiting for payout', icon: 'clock', value: money(e.pendingMinor), foot: `Next payout ${dateOnly(e.nextPayoutDate)}` },
+        { label: 'Paid to your bank', icon: 'checkCircle', value: money(e.paidOutMinor), foot: e.bankMasked ? `To ${e.bankMasked}` : 'No bank account yet' },
+      ]} />
+      <div className="spacer" />
+      {!e.bankMasked && <><Notice tone="warn">Add a bank account in Settings so your earnings can be paid out.</Notice><div className="spacer" /></>}
+      <div className="grid" style={{ gridTemplateColumns: 'minmax(280px, 1fr) minmax(0, 1.6fr)' }}>
+        <Card title="How it adds up">
+          <table className="money-lines"><tbody>
+            <tr><td>Service value</td><td>{money(e.serviceMinor)}</td></tr>
+            <tr className="sub"><td>Platform commission ({(e.commissionBps / 100).toFixed(1)}%)</td><td>−{money(e.commissionMinor)}</td></tr>
+            <tr className="sub"><td>Payment processing fees</td><td>−{money(e.gatewayFeeMinor)}</td></tr>
+            <tr className="total"><td>Your net earnings</td><td>{money(e.netMinor)}</td></tr>
+          </tbody></table>
+          <p className="faint small" style={{ marginTop: 10 }}>Tax and the customer's convenience fee are not part of your earnings or the commission.</p>
+        </Card>
+        <Card title="Payouts" flush>
+          <DataTable rows={p} rowKey={(x) => x.id} pageSize={10} initialSort={{ key: 'date', dir: 'desc' }}
+            empty={<EmptyState icon="wallet" title="No payouts yet">Payouts run on a schedule once bookings are completed.</EmptyState>}
+            columns={[
+              { key: 'date', header: 'Date', cell: (x) => dateTime(x.createdAt), sort: (x) => x.createdAt },
+              { key: 'n', header: 'Bookings', cell: (x) => x.orderCount, align: 'right' },
+              { key: 'amt', header: 'Amount', cell: (x) => <strong>{money(x.amountMinor)}</strong>, sort: (x) => x.amountMinor, align: 'right' },
+              { key: 'status', header: 'Status', cell: (x) => <StatusBadge status={x.status} /> },
+            ]} />
+        </Card>
       </div>
-      <div style={{ height: 20 }} />
-      <Card flush>
-        <div style={{ padding: '16px 18px 4px' }}><h2>Payout history</h2></div>
-        {!p.length ? <Empty>No payouts yet.</Empty> : (
-          <Table head={['Date', 'Bookings', 'Amount', 'Status']}>{p.map((x) => <tr key={x.id}><td>{dateTime(x.createdAt)}</td><td>{x.orderCount}</td><td>{money(x.amountMinor)}</td><td>{x.status.toLowerCase()}</td></tr>)}</Table>
-        )}
-      </Card>
     </>
   )
 }

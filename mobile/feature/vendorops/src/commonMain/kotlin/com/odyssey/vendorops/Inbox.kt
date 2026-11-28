@@ -106,8 +106,13 @@ fun InboxScreen(
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Remote(state, vm::reload) {
                 val rows = groups[Group.entries[tab]]!!
-                if (rows.isEmpty()) EmptyNote("Nothing here.")
-                rows.forEach { o -> BookingRow(o, onOpen, onAct = { a -> if (a in NEEDS_REASON) reason = o to a else vm.act(o, a, null, report) }) }
+                if (rows.isEmpty()) when (Group.entries[tab]) {
+                    Group.NEW -> EmptyState(Lucide.Inbox, "No new bookings", "New bookings ring here. Keep the app open at the counter.")
+                    Group.UPCOMING -> EmptyState(Lucide.CalendarDays, "Nothing coming up", "Confirmed bookings for later today show here.", "Add a walk-in", onWalkIn)
+                    Group.IN_BAY -> EmptyState(Lucide.Car, "No cars in the bays", "Check a customer in when they arrive, or scan their QR code.", "Scan to check in", onScan)
+                    Group.DONE -> EmptyState(Lucide.CircleCheck, "Nothing finished yet", "Completed and cancelled bookings for today show here.")
+                }
+                rows.forEach { o -> BookingRow(o, onOpen, onAct = { a -> if (a in NEEDS_REASON || a == "NO_SHOW") reason = o to a else vm.act(o, a, null, report) }) }
             }
         }
         Row(Modifier.fillMaxWidth().padding(14.dp, 8.dp, 14.dp, 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -115,7 +120,15 @@ fun InboxScreen(
             Box(Modifier.weight(1f)) { SecondaryButton("Scan to check in", onScan, Modifier.fillMaxWidth().height(48.dp), icon = Lucide.ScanLine) }
         }
     }
-    reason?.let { (o, a) -> ReasonDialog("${ACTION_LABEL[a]} ${displayCode(o.code)}", "Reason (shown to the customer)", { r -> reason = null; vm.act(o, a, r, report) }, { reason = null }) }
+    reason?.let { (o, a) -> ActionConfirm(o, a, { r -> reason = null; vm.act(o, a, r, report) }, { reason = null }) }
+}
+
+/** Confirms a counter action that cannot be undone, saying what it means for the customer and for the vendor. */
+@Composable
+private fun ActionConfirm(o: Order, action: String, onConfirm: (String?) -> Unit, onDismiss: () -> Unit) {
+    if (action == "NO_SHOW") ConfirmDialog("Mark ${o.customerName} as a no-show?", "Use this only if they did not arrive. The booking is not refunded and you are paid as usual.", "Mark no-show", { onConfirm(null) }, onDismiss)
+    else ConfirmDialog("${ACTION_LABEL[action]} ${displayCode(o.code)}?", "${o.customerName} is refunded ${formatMoney(o.totalMinor)} in full and told straight away. It counts against your cancellation rate.",
+        ACTION_LABEL.getValue(action), { r -> onConfirm(r) }, onDismiss, danger = true, reasonLabel = "Reason (the customer sees this)")
 }
 
 private fun clockMinutes(hhmm: String): Int = (hhmm.take(2).toIntOrNull() ?: 0) * 60 + (hhmm.drop(3).take(2).toIntOrNull() ?: 0)
@@ -174,7 +187,7 @@ fun BookingDetailScreen(orderId: String, onBack: () -> Unit, report: (String) ->
         if (o != null) {
             o.actions.filter { it in PRIMARY }.forEach { a -> PrimaryButton(ACTION_LABEL.getValue(a), { vm.act(o, a, null, report) }) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if ("NO_SHOW" in o.actions) SecondaryButton("Mark no-show", { vm.act(o, "NO_SHOW", null, report) }, Modifier.weight(1f))
+                if ("NO_SHOW" in o.actions) SecondaryButton("Mark no-show", { reason = "NO_SHOW" }, Modifier.weight(1f))
                 if (o.customerPhone.isNotBlank()) SecondaryButton("Call customer", { platform.call(o.customerPhone) }, Modifier.weight(1f), icon = Lucide.Phone)
                 if ("CANCEL_BY_PROVIDER" in o.actions) SecondaryButton("Cancel", { reason = "CANCEL_BY_PROVIDER" }, danger = true)
             }
@@ -208,7 +221,7 @@ fun BookingDetailScreen(orderId: String, onBack: () -> Unit, report: (String) ->
             }
         }
     }
-    reason?.let { a -> ReasonDialog("${ACTION_LABEL[a]} ${o?.let { displayCode(it.code) } ?: ""}", "Reason (shown to the customer)", { r -> reason = null; o?.let { vm.act(it, a, r, report) } }, { reason = null }) }
+    reason?.let { a -> o?.let { ord -> ActionConfirm(ord, a, { r -> reason = null; vm.act(ord, a, r, report) }, { reason = null }) } }
 }
 
 private fun eventLabel(e: OrderEvent) = when (e.action) {
@@ -233,7 +246,7 @@ fun ScanScreen(onClose: () -> Unit, onFound: (String) -> Unit) {
     }
     Column(Modifier.fillMaxSize().background(Ind.bg).statusBarsPadding().navigationBarsPadding().padding(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) { Icon(Lucide.X, "Close", Modifier.size(24.dp).clickable(onClick = onClose)); Spacer(Modifier.weight(1f)); Heading("Scan customer QR", 22); Spacer(Modifier.weight(1f)) }
-        Hatch(Modifier.fillMaxWidth().weight(1f).clickable { platform.scanCode { r -> if (r != null) find(r) } }, "tap to open the camera")
+        Viewfinder(Modifier.fillMaxWidth().weight(1f).clickable { platform.scanCode { r -> if (r != null) find(r) } })
         PrimaryButton("Open camera", { platform.scanCode { r -> if (r != null) find(r) } })
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Body("No camera? Type the booking code", size = 13, color = Ind.muted)
@@ -290,5 +303,24 @@ fun WalkInScreen(loc: ProviderLocation, onClose: () -> Unit, onDone: (String) ->
         }
         Body("Walk-ins take a slot so online customers only see what's really free. Paid at the counter; no commission.", size = 12, color = Ind.muted)
         error?.let { ErrorBox(it) }
+    }
+}
+
+/** A scanner frame: four corner brackets around a QR glyph, with what to do underneath. */
+@Composable
+private fun Viewfinder(modifier: Modifier) {
+    Box(modifier.background(Ind.a900), Alignment.Center) {
+        androidx.compose.foundation.Canvas(Modifier.size(220.dp)) {
+            val arm = 36.dp.toPx(); val w = 4.dp.toPx(); val c = Ind.a300; val s = size.width
+            listOf(0f to 0f, s to 0f, 0f to s, s to s).forEach { (x, y) ->
+                val dx = if (x == 0f) arm else -arm; val dy = if (y == 0f) arm else -arm
+                drawLine(c, androidx.compose.ui.geometry.Offset(x, y), androidx.compose.ui.geometry.Offset(x + dx, y), w)
+                drawLine(c, androidx.compose.ui.geometry.Offset(x, y), androidx.compose.ui.geometry.Offset(x, y + dy), w)
+            }
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Icon(Lucide.QrCode, null, Modifier.size(56.dp), tint = Ind.a200)
+            Body("Tap to scan the customer's QR", size = 13, color = Ind.a200)
+        }
     }
 }

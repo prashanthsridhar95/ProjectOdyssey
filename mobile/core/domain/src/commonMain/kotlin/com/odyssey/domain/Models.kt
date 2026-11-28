@@ -123,6 +123,10 @@ data class EarningsReport(
     val netMinor: Long = 0, val pendingMinor: Long = 0, val paidOutMinor: Long = 0, val nextPayoutDate: String = "", val bankMasked: String? = null,
 )
 @Serializable data class PayoutRow(val id: String, val amountMinor: Long, val orderCount: Int, val status: String, val createdAt: String, val reference: String? = null)
+/** A review as the vendor sees it, with their public reply. */
+@Serializable data class ProviderReview(val id: String, val customerName: String, val rating: Int, val comment: String = "", val createdAt: String, val tags: List<String> = emptyList(), val reply: String? = null, val replyAt: String? = null)
+/** What a vendor can change about an outlet; null leaves a field as it is. */
+@Serializable data class LocationUpdate(val openTime: String? = null, val closeTime: String? = null, val slotMinutes: Int? = null, val capacity: Int? = null, val autoAccept: Boolean? = null, val open: Boolean? = null)
 @Serializable data class RosterEntry(val id: String, val name: String, val phone: String, val role: Role)
 
 @Serializable data class DayPoint(val date: String, val gmvMinor: Long)

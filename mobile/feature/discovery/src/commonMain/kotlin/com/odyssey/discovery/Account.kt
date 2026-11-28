@@ -27,20 +27,27 @@ fun GarageScreen(onAdd: () -> Unit, bottomBar: @Composable () -> Unit) {
     val vertical = LocalVertical.current
     val scope = rememberCoroutineScope()
     var error by remember { mutableStateOf<String?>(null) }
+    var removing by remember { mutableStateOf<Asset?>(null) }
     Screen(
         "Your garage", bottomBar = bottomBar,
         footer = { if (vertical != null) PrimaryButton("Add a ${vertical.assetNoun.lowercase()}", onAdd) },
     ) {
-        if (customer.garage.isEmpty()) EmptyNote("No ${vertical?.assetNoun?.lowercase() ?: "item"}s saved yet.")
+        if (customer.garage.isEmpty()) EmptyState(Lucide.Car, "No ${vertical?.assetNoun?.lowercase() ?: "item"}s saved yet", "Save one so prices match it and the counter knows what to expect.")
         customer.garage.forEach { a ->
             val on = customer.vehicle?.id == a.id
             Row(Modifier.fillMaxWidth().then(if (on) Modifier.background(Ind.a100).hairline(Ind.accent) else Modifier.hairline()).clickable { customer.vehicle = a }.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Icon(vertical?.iconFor(a) ?: Lucide.Car, null, Modifier.size(24.dp), tint = if (on) Ind.a800 else Ind.text)
                 Column(Modifier.weight(1f)) { Body(a.label, weight = FontWeight.Medium); if (on) Body("Used for prices", size = 12, color = Ind.a800) }
-                GhostButton("Remove", { scope.launch { try { app.customer.deleteAsset(a.id); customer.garage = customer.garage - a; if (customer.vehicle?.id == a.id) customer.vehicle = customer.garage.firstOrNull() } catch (e: Exception) { error = e.friendly() } } })
+                GhostButton("Remove", { removing = a })
             }
         }
         error?.let { ErrorBox(it) }
+    }
+    removing?.let { a ->
+        ConfirmDialog("Remove ${a.label}?", "Bookings already made for it are not affected. You can add it again any time.", "Remove", {
+            removing = null
+            scope.launch { try { app.customer.deleteAsset(a.id); customer.garage = customer.garage - a; if (customer.vehicle?.id == a.id) customer.vehicle = customer.garage.firstOrNull() } catch (e: Exception) { error = e.friendly() } }
+        }, { removing = null }, danger = true)
     }
 }
 
@@ -53,15 +60,20 @@ fun AccountScreen(onNotifications: () -> Unit, onFavorites: () -> Unit, onSignOu
     val user = app.session.collectAsStateValue()?.user
     val scope = rememberCoroutineScope()
     var addPlace by remember { mutableStateOf<String?>(null) }
+    var removePlace by remember { mutableStateOf<SavedPlace?>(null) }
+    var signOut by remember { mutableStateOf(false) }
     Screen("Account", bottomBar = bottomBar) {
-        Column(Modifier.fillMaxWidth().hairline().padding(14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) { Heading(user?.name ?: "", 22); Body(user?.phone ?: "", color = Ind.muted) }
+        Row(Modifier.fillMaxWidth().hairline().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(48.dp).background(Ind.a100), Alignment.Center) { Heading(initialsOf(user?.name ?: "?"), 18, color = Ind.a800) }
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) { Heading(user?.name ?: "", 22); Body(user?.phone?.let(::formatPhone) ?: "", color = Ind.muted) }
+        }
         Section("Saved places") {
             if (customer.savedPlaces.isEmpty()) Body("Save Home and Work to search from them quickly.", size = 13, color = Ind.muted)
             customer.savedPlaces.forEach { p ->
                 Row(Modifier.fillMaxWidth().hairline().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Icon(if (p.label == "Work") Lucide.Briefcase else Lucide.House, null, Modifier.size(18.dp))
                     Column(Modifier.weight(1f)) { Body(p.label, weight = FontWeight.Medium); Body(p.address, size = 12, color = Ind.muted) }
-                    GhostButton("Remove", { scope.launch { runCatching { app.customer.deletePlace(p.label) }; customer.savedPlaces = customer.savedPlaces - p } })
+                    GhostButton("Remove", { removePlace = p })
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -70,8 +82,11 @@ fun AccountScreen(onNotifications: () -> Unit, onFavorites: () -> Unit, onSignOu
         }
         LinkRow("Notifications", Lucide.Bell, badge = customer.unread.takeIf { it > 0 }?.toString(), onClick = onNotifications)
         LinkRow("Favourites", Lucide.Heart, onClick = onFavorites)
-        SecondaryButton("Sign out", onSignOut, Modifier.fillMaxWidth(), danger = true)
+        SecondaryButton("Sign out", { signOut = true }, Modifier.fillMaxWidth(), danger = true)
+        Body("Need help with a booking? Open it and tap Report a problem. We reply within 24 hours.", size = 12, color = Ind.muted)
     }
+    removePlace?.let { p -> ConfirmDialog("Remove ${p.label}?", "You can save it again any time.", "Remove", { removePlace = null; scope.launch { runCatching { app.customer.deletePlace(p.label) }; customer.savedPlaces = customer.savedPlaces - p } }, { removePlace = null }) }
+    if (signOut) ConfirmDialog("Sign out?", "Your bookings and garage stay saved. You will need a new code to sign in again.", "Sign out", { signOut = false; onSignOut() }, { signOut = false })
     addPlace?.let { label ->
         var address by remember(label) { mutableStateOf("") }
         AlertDialog(
@@ -110,7 +125,7 @@ fun NotificationsScreen(onBack: () -> Unit, onOpenOrder: (String) -> Unit) {
     LaunchedEffect(Unit) { vm.markRead { customer.unread = 0 } }
     Screen("Notifications", onBack = onBack) {
         Remote(s, vm::reload) { items ->
-            if (items.isEmpty()) EmptyNote("Nothing yet. Updates about your bookings show up here.")
+            if (items.isEmpty()) EmptyState(Lucide.Bell, "No notifications yet", "Updates about your bookings show up here.")
             items.forEach { n ->
                 Row(Modifier.fillMaxWidth().hairline().clickable { n.orderId?.let(onOpenOrder) }.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Box(Modifier.size(36.dp).background(Ind.accent), Alignment.Center) { Heading("R", 16, color = Ind.bg) }
@@ -140,7 +155,7 @@ fun FavoritesScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
     val s = vm.list.collectAsStateValue()
     Screen("Favourites", onBack = onBack) {
         Remote(s, vm::reload) { places ->
-            if (places.isEmpty()) EmptyNote("Tap the heart on a place to keep it here.")
+            if (places.isEmpty()) EmptyState(Lucide.Heart, "No favourites yet", "Tap the heart on a place to keep it here.")
             places.forEach { PlaceCard(it) { onOpen(it.id) } }
         }
     }

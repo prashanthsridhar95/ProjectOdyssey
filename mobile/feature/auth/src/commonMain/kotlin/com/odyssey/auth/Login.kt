@@ -93,7 +93,7 @@ fun LoginScreen(
                 Heading(title, 36)
                 Body(subtitle, color = Ind.muted)
             }
-            if (showHero) Hatch(Modifier.fillMaxWidth().height(if (s.codeSent) 120.dp else 200.dp), "hero photo · duotone")
+            if (showHero) BlueprintArt(Modifier.fillMaxWidth().height(if (s.codeSent) 120.dp else 200.dp), seed = brand, showCar = true)
             if (modes.size > 1) {
                 Seg(listOf("Owner", "Counter staff"), if (s.mode == LoginMode.OTP) 0 else 1) { vm.setMode(if (it == 0) LoginMode.OTP else LoginMode.STAFF_PIN) }
             }
@@ -106,14 +106,13 @@ fun LoginScreen(
                 if (s.codeSent) GhostButton("Change number", vm::changeNumber)
             }
             if (s.mode == LoginMode.STAFF_PIN) {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) { Body("4-digit PIN", size = 12, color = Ind.muted); CodeBoxes(s.code, 4, vm::code) }
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) { Body("4-digit PIN", size = 12, color = Ind.muted); CodeBoxes(s.code, 4, secret = true, onChange = vm::code) }
             } else if (s.codeSent) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Body("Enter the 6-digit code sent by SMS", size = 12, color = Ind.muted)
-                    CodeBoxes(s.code, 6, vm::code)
+                    CodeBoxes(s.code, 6, onChange = vm::code)
                     if (s.resendIn > 0) Body("Resend code in 0:${s.resendIn.toString().padStart(2, '0')}", size = 12, color = Ind.muted)
                     else GhostButton("Resend code", vm::resend)
-                    Body("Local dev code: 123456", size = 12, color = Ind.mutedSoft)
                 }
                 if (askName) Field("Your name (first time only)", s.name, vm::name)
             }

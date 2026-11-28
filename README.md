@@ -36,7 +36,7 @@ cd mobile
 # local backend from the emulator:  -Podyssey.apiUrl=http://10.0.2.2:8080
 ```
 
-Web without Docker: `cd web && npm install && npm run dev:admin` (and `dev:vendor`). Backend without Docker: `cd backend && ./gradlew :server:run` (in-memory H2, same migrations and seed).
+Web without Docker: `cd web && npm install && npm run dev:admin` (and `dev:vendor`). With `VITE_API_URL=""` the dev server proxies `/v1` to `http://localhost:8080` (override with `API_PROXY`), so no CORS entry is needed; `PORT` picks the port. Backend without Docker: `cd backend && ./gradlew :server:run` (in-memory H2, same migrations and seed).
 
 ### Public API through Cloudflare
 
@@ -70,6 +70,24 @@ api/       OpenAPI contract
 
 Commission is a percentage of the **service amount** (not tax or fees), per vendor or the tenant default, fixed on the booking at the time it is placed. Every money movement is a balanced double-entry ledger transaction (payment, settlement, full or partial refund, payout). Completed and no-show bookings become payable; the admin runs payouts. Platform billing (base subscription + per-order percentage above a threshold) is computed per month.
 
+## Product experience
+
+The admin and vendor consoles share one design system (`web/packages/ui`) built for daily operational use:
+
+- **Shell**: grouped navigation with icons and live counts of waiting work (vendors to review, open tickets, bookings to accept, unreplied reviews), breadcrumbs, a `⌘K` / `/` command palette, light, dark or system theme, a user menu, an offline banner, a crash boundary per page and a proper not-found page. Every page sets the browser tab title.
+- **Lists**: one `DataTable` everywhere, with search, sortable columns, paging, CSV export of what is shown, skeleton loading and empty states that say what to do next.
+- **Safety**: every destructive or money-moving action (cancel and refund, reject, suspend, hold or run payouts, block a customer, delete a service, remove staff) goes through a confirm dialog that states the consequence, and asks for a written reason where the other side will see it. Settings track unsaved changes with a sticky save bar and a leave-page warning. Forms validate before they submit (phone numbers, IFSC, account number typed twice, PIN strength, time ranges).
+- **Sign-in**: phone with a fixed +91 prefix, one box per code digit (paste fills all), resend timer, change number, and a counter-staff PIN mode on the vendor console. The dev OTP hint shows only in development builds.
+- **Vendor counter**: the bookings page is a live queue (polls every 15 s while visible, sound on new bookings that can be muted, day stepper, lanes for needs-action, upcoming, in progress, done and cancelled, earnings so far).
+
+The Android apps follow the same rules:
+
+- **Admin app**: Overview (period switch, numbers, GMV chart, what needs attention), Vendors (search, status filters with counts, verification with per-document checks, commission, payout hold), Bookings (search, filters, full charges, cancel and refund), Support (open reports, refund amount, resolve or dismiss) and Account. Payout runs, commission rules and marketplace settings stay on the web console.
+- **Vendor app**: a More tab adds reviews with public replies, outlet settings (hours, bays, slot length, pause, auto-accept), staff (add with a PIN, remove), the bank account (number typed twice, IFSC checked) and the Owner PIN. No-shows, rejections and cancellations confirm first and say what the customer gets back; "Forgot PIN" on the counter lock screen explains before it signs the device out; the QR check-in screen has a proper scanner frame.
+- **All three**: confirmation dialogs, empty states that say what to do next, a branded start-up screen with retry, PINs masked as they are typed, and multi-line fields that no longer stretch to fill a dialog.
+
+The customer app (Android and web) uses branded blueprint artwork in place of the design's photo placeholders, removed the dev OTP hint, shows a branded splash while the WebAssembly loads, keeps the signed-in session across reloads on the web, and draws the ₹ sign on the web (see `scripts/add-rupee-glyph.py`).
+
 ## What is verified
 
 | Layer | Result |
@@ -77,7 +95,10 @@ Commission is a percentage of the **service amount** (not tax or fees), per vend
 | Backend core unit tests (11: slot maths, pricing, flow, boundary rule) | pass |
 | Backend API integration tests, 17 scenarios over real HTTP on H2 | pass |
 | Same flow on real PostgreSQL in Docker (`scripts/smoke.sh`) | pass |
-| Web: typecheck, production build, 8 unit tests | pass |
+| Web: typecheck, production build, 18 unit tests | pass |
+| Web consoles after the product pass: admin dashboard, bookings with detail drawer, vendors list and detail with confirm dialogs, payments, command palette, mobile navigation, light and dark themes; vendor sign-in (phone and code steps), live bookings queue, overview, earnings behind the Owner PIN | checked in a browser against the seeded backend; destructive confirms opened and cancelled, not submitted |
+| Android after the product pass: admin app signed in, overview, vendors, vendor detail and the reject confirmation; vendor app signed in, counter unlock, bookings queue, More, reviews, staff; customer app sign-in artwork, account and sign-out confirmation | checked on the emulator against the public API; confirmations opened and cancelled, nothing submitted |
+| Customer web after the product pass: splash, session kept across reloads, discovery list and outlet page with blueprint artwork and ₹ prices | checked in a browser |
 | Web in a browser (Rinse "Industry" theme): admin dashboard, payments (batch, payouts, collections, refunds, ledger), commission rules with preview, customers, moderation, support, cities and areas, vendor review with per-document states; vendor overview with busiest-hours heatmap, closures, reviews with replies, bulk price edit, earnings | pages load with seeded data; write actions (reply, closure, bulk edit, resolve ticket) covered by backend tests, not clicked through |
 | Mobile: shared domain tests (9) and data tests (5, mock HTTP) | pass |
 | Android: three apps build; customer app booked and paid on an emulator; vendor app signs in and shows the Today inbox and walk-in form (other vendor screens not clicked through); a stale session returns to sign-in | checked by hand |

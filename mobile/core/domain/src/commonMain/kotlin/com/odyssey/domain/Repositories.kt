@@ -73,6 +73,13 @@ interface ProviderRepository {
     suspend fun payouts(pin: String): List<PayoutRow>
     suspend fun staff(): List<User>
     suspend fun setAutoAccept(locationId: String, on: Boolean)
+    suspend fun updateLocation(locationId: String, update: LocationUpdate): ProviderLocation
+    suspend fun reviews(): List<ProviderReview>
+    suspend fun reply(reviewId: String, text: String): ProviderReview
+    suspend fun addStaff(name: String, phone: String, role: Role, staffPin: String, ownerPin: String): User
+    suspend fun removeStaff(id: String, ownerPin: String)
+    suspend fun saveBank(accountName: String, accountNumber: String, ifsc: String, ownerPin: String): Provider
+    suspend fun setOwnerPin(newPin: String, currentPin: String?)
 }
 
 /** Small persistent key-value storage the apps provide (SharedPreferences, UserDefaults). */
@@ -82,10 +89,14 @@ interface KeyValueStore {
 }
 
 interface AdminRepository {
-    suspend fun dashboard(): Dashboard
+    suspend fun dashboard(range: String = "7d"): Dashboard
     suspend fun providers(status: String?): List<Provider>
     suspend fun provider(id: String): Provider
     suspend fun providerAction(id: String, action: String, note: String?): Provider
     suspend fun setCommission(id: String, bps: Int?): Provider
     suspend fun orders(status: String?): List<Order>
+    suspend fun setHold(id: String, hold: Boolean): Provider
+    suspend fun reviewDocument(id: String, type: String, state: String, note: String?): Provider
+    suspend fun tickets(status: String?): List<Ticket>
+    suspend fun resolveTicket(id: String, uphold: Boolean, refundMinor: Long, note: String): Ticket
 }

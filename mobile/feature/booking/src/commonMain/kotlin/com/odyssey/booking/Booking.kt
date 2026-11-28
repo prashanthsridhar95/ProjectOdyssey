@@ -387,7 +387,7 @@ fun BookingsScreen(onOpen: (String) -> Unit, onRebook: (String) -> Unit, onResch
         s.message?.let { Body(it, color = Ind.a700, weight = FontWeight.Medium) }
         Remote(s.orders, vm::reload) {
             if (s.upcoming) {
-                if (upcoming.isEmpty()) EmptyNote("Nothing coming up.")
+                if (upcoming.isEmpty()) EmptyState(Lucide.CalendarDays, "Nothing coming up", "Book a ${LocalVertical.current?.serviceNoun ?: "slot"} and it shows here with live updates.")
                 upcoming.forEach { o -> ActiveBooking(o, s.details[o.id], tenant, onOpen, onReschedule = { onReschedule(o) }, onCancel = { confirmCancel = o }, onCall = { (s.details[o.id]?.order?.locationPhone ?: o.locationPhone)?.let(platform::call) }) }
             }
             if (!s.upcoming || past.isNotEmpty()) Section("Recent") {

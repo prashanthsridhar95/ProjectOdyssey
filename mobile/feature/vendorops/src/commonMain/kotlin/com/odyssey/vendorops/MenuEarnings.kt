@@ -93,7 +93,6 @@ fun EditItemScreen(locationId: String, item: Item?, owner: Boolean, onBack: () -
             }, enabled = name.isNotBlank() && built().prices.isNotEmpty() && (owner || !priceChanged))
         },
     ) {
-        Hatch(Modifier.fillMaxWidth().height(110.dp), "service photo")
         Field("Name", name, { name = it }, enabled = owner || item == null)
         Field("Category", category, { category = it }, placeholder = "Exterior, Interior, Add-on")
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {

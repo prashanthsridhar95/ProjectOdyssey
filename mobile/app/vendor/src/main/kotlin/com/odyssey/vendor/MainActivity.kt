@@ -38,7 +38,9 @@ class MainActivity : ComponentActivity() {
                 var failure by remember { mutableStateOf<String?>(null) }
                 LaunchedEffect(Unit) { try { config = container.auth.config() } catch (e: Exception) { failure = e.friendly() } }
                 val loaded = config
-                if (loaded == null) Box(Modifier.fillMaxSize(), Alignment.Center) { failure?.let { ErrorBox(it) } ?: CircularProgressIndicator(color = Ind.accent) }
+                var attempt by remember { mutableStateOf(0) }
+                LaunchedEffect(attempt) { if (attempt > 0) { failure = null; try { config = container.auth.config() } catch (e: Exception) { failure = e.friendly() } } }
+                if (loaded == null) AppSplash("Odyssey", "for Business", failure) { attempt++ }
                 else CompositionLocalProvider(LocalContainer provides container, LocalTenant provides loaded, LocalVertical provides CarWashUi, LocalPlatform provides platform) { VendorApp(loaded.tenant.name) }
             }
         }

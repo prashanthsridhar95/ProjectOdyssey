@@ -30,11 +30,11 @@ export interface Order {
   assetLabel?: string; variantKey: string; startsAt: string; endsAt: string; lines: OrderLine[]
   subtotalMinor: number; taxMinor: number; feeMinor: number; totalMinor: number
   commissionBps?: number; commissionMinor?: number; cancellationReason?: string; createdAt: string
-  actions: string[]; reviewed: boolean
+  actions: string[]; reviewed: boolean; bay?: number | null
 }
 
 export interface Slot { startsAt: string; endsAt: string; free: number; bookable: boolean }
-export interface Item { id: string; name: string; description: string; category: string; durationMinutes: number; active: boolean; prices: Record<string, number> }
+export interface Item { id: string; name: string; description: string; category: string; durationMinutes: number; active: boolean; prices: Record<string, number>; outOfStock?: boolean; baysUsed?: number }
 export interface Location {
   id: string; name: string; address: string; lat: number; lng: number; openTime: string; closeTime: string
   slotMinutes: number; capacity: number; autoAccept: boolean; open: boolean; amenities: string[]; ratingAvg: number; ratingCount: number
@@ -48,6 +48,8 @@ export interface Provider {
   payoutHold?: boolean; staffCount?: number
   documents: Document[]; bank?: Bank; ownerName?: string; ownerPhone?: string; locations: Location[]; createdAt: string
 }
+export interface Window { startsAt: string; endsAt: string; bays?: number[] | null; reason: string; repeat: string }
+export interface DayCalendar { capacity: number; slotMinutes: number; openTime: string; closeTime: string; orders: Order[]; windows: Window[] }
 export interface Block { id: string; startsAt: string; endsAt: string; reason: string }
 export interface StaffMember { id: string; name: string; phone: string; role: Role }
 export interface Payout { id: string; providerId: string; providerName?: string; amountMinor: number; orderCount: number; status: string; createdAt: string }
@@ -88,7 +90,7 @@ export interface RulePreview { serviceMinor: number; commissionMinor: number; ga
 export interface Outlier { itemId: string; providerId: string; locationName: string; vendor: string; item: string; variant: string; priceMinor: number; medianMinor: number; reason: string }
 export interface Ticket {
   id: string; orderId: string; orderCode?: string | null; locationName?: string | null; customerName?: string | null; category: string; description: string
-  photos: string[]; status: string; resolutionNote?: string | null; refundMinor: number; orderTotalMinor?: number | null; createdAt: string
+  photos: string[]; status: string; resolutionNote?: string | null; refundMinor: number; totalMinor?: number | null; createdAt: string
 }
 export interface Promo { code: string; kind: 'FLAT' | 'PERCENT'; value: number; maxDiscountMinor?: number | null; minSubtotalMinor: number; expiresAt?: string | null; usageLimit?: number | null; perUserLimit: number; active: boolean; description: string }
 export interface BulkEdit { name: string; prices?: Record<string, number>; active?: boolean; outOfStock?: boolean }

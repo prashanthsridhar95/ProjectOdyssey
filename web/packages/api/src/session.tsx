@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { createApi, type Api } from './client'
+import { ApiError, createApi, type Api } from './client'
 import type { PublicConfig, Role, User } from './types'
 
 interface Session {
@@ -19,10 +19,12 @@ interface Props {
   tenant?: string
   /** Roles allowed to use this app. Others are signed out. */
   allowedRoles: Role[]
+  /** Shown while a saved session is being checked, instead of a blank page. */
+  fallback?: ReactNode
   children: ReactNode
 }
 
-export function SessionProvider({ storageKey, baseUrl, tenant, allowedRoles, children }: Props) {
+export function SessionProvider({ storageKey, baseUrl, tenant, allowedRoles, fallback = null, children }: Props) {
   const tokenRef = useRef<string | null>(null)
   const [user, setUser] = useState<User | null>(null)
   const [config, setConfig] = useState<PublicConfig | null>(null)
@@ -53,15 +55,24 @@ export function SessionProvider({ storageKey, baseUrl, tenant, allowedRoles, chi
       if (raw) {
         const saved = JSON.parse(raw) as { token: string; user: User }
         tokenRef.current = saved.token
-        api.auth.me().then((u) => setUser(u)).catch(() => logout()).finally(() => setReady(true))
+        api.auth.me().then((u) => setUser(u))
+          // Only a rejected token signs out; a network blip keeps the saved session so the console still opens.
+          .catch((e: unknown) => { if (e instanceof ApiError && (e.status === 401 || e.status === 403)) logout(); else setUser(saved.user) })
+          .finally(() => setReady(true))
         return
       }
     } catch { /* ignore */ }
     setReady(true)
   }, [api, storageKey, logout])
 
+  useEffect(() => {
+    const h = (e: StorageEvent) => { if (e.key === storageKey && e.newValue === null) { tokenRef.current = null; setUser(null) } }
+    window.addEventListener('storage', h)
+    return () => window.removeEventListener('storage', h)
+  }, [storageKey])
+
   const value = useMemo(() => ({ api, user, config, login, logout }), [api, user, config, login, logout])
-  if (!ready) return null
+  if (!ready) return <>{fallback}</>
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 

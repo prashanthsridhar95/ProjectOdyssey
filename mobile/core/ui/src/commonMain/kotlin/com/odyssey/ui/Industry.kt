@@ -169,3 +169,74 @@ fun Seg(options: List<String>, selected: Int, modifier: Modifier = Modifier, onS
 fun IconBox(icon: ImageVector, modifier: Modifier = Modifier, size: Dp = 36.dp, tint: Color = Ind.text, onClick: (() -> Unit)? = null) {
     Box(modifier.size(size).background(Ind.bg).hairline().then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier), contentAlignment = Alignment.Center) { Icon(icon, null, Modifier.size(18.dp), tint = tint) }
 }
+
+/**
+ * Branded artwork in the blueprint style: a steel-blue panel with a fine grid and a line-drawn car with dimension marks.
+ * Used wherever a photo would go until vendors upload their own. [seed] varies the tone and framing so a list of places
+ * does not look like copies; [monogram] puts initials in the corner (an outlet's, for example).
+ */
+@Composable
+fun BlueprintArt(modifier: Modifier = Modifier, seed: String = "", monogram: String? = null, showCar: Boolean = true) {
+    val h = seed.fold(7) { a, c -> (a * 31 + c.code) and 0x7fffffff }
+    val tones = listOf(Ind.a800 to Ind.a700, Ind.a900 to Ind.a800, Ind.a700 to Ind.a600)
+    val (bgTop, bgBottom) = tones[h % tones.size]
+    val shift = ((h / 7) % 5 - 2) * 0.03f
+    Box(modifier.clipToBounds().background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(bgTop, bgBottom)))) {
+        Canvas(Modifier.matchParentSize()) {
+            val gridGap = 16.dp.toPx(); val thin = 1.dp.toPx()
+            val grid = Ind.a300.copy(alpha = 0.10f)
+            var gx = 0f; while (gx < size.width) { drawLine(grid, Offset(gx, 0f), Offset(gx, size.height), thin); gx += gridGap }
+            var gy = 0f; while (gy < size.height) { drawLine(grid, Offset(0f, gy), Offset(size.width, gy), thin); gy += gridGap }
+            if (!showCar) return@Canvas
+            // Car box: about 62% of the width, kept inside the height.
+            val cw = minOf(size.width * 0.62f, size.height * 1.9f)
+            val ch = cw * 0.38f
+            val left = size.width * (0.5f + shift) - cw / 2
+            val top = size.height * 0.56f - ch / 2
+            fun p(x: Float, y: Float) = Offset(left + x * cw, top + y * ch)
+            val line = Ind.a200.copy(alpha = 0.9f); val stroke = 1.6.dp.toPx()
+            val body = androidx.compose.ui.graphics.Path().apply {
+                val pts = listOf(0.03f to 0.74f, 0.03f to 0.54f, 0.10f to 0.47f, 0.30f to 0.42f, 0.41f to 0.18f, 0.66f to 0.16f, 0.80f to 0.40f, 0.94f to 0.45f, 0.97f to 0.58f, 0.97f to 0.74f)
+                moveTo(p(pts[0].first, pts[0].second).x, p(pts[0].first, pts[0].second).y)
+                pts.drop(1).forEach { (x, y) -> val o = p(x, y); lineTo(o.x, o.y) }
+                close()
+            }
+            drawPath(body, line, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+            val window = androidx.compose.ui.graphics.Path().apply {
+                val a = p(0.34f, 0.42f); moveTo(a.x, a.y)
+                listOf(0.43f to 0.25f, 0.64f to 0.23f, 0.75f to 0.42f).forEach { (x, y) -> val o = p(x, y); lineTo(o.x, o.y) }
+                close()
+            }
+            drawPath(window, line.copy(alpha = 0.6f), style = androidx.compose.ui.graphics.drawscope.Stroke(thin))
+            drawLine(line.copy(alpha = 0.6f), p(0.55f, 0.24f), p(0.55f, 0.74f), thin)
+            val r = ch * 0.17f
+            listOf(0.24f, 0.78f).forEach { wx ->
+                val c = p(wx, 0.74f)
+                drawCircle(bgBottom, r * 1.08f, c)
+                drawCircle(line, r, c, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+                drawCircle(line.copy(alpha = 0.5f), r * 0.45f, c, style = androidx.compose.ui.graphics.drawscope.Stroke(thin))
+            }
+            // Ground line and a dimension line over the roof, the way a drawing sheet marks size.
+            val ground = top + 0.74f * ch + r
+            drawLine(line.copy(alpha = 0.35f), Offset(left - cw * 0.1f, ground), Offset(left + cw * 1.1f, ground), thin)
+            val dim = top - ch * 0.22f; val tick = 4.dp.toPx(); val dimC = Ind.a300.copy(alpha = 0.55f)
+            drawLine(dimC, Offset(left + 0.03f * cw, dim), Offset(left + 0.97f * cw, dim), thin)
+            listOf(0.03f, 0.97f).forEach { x -> drawLine(dimC, Offset(left + x * cw, dim - tick), Offset(left + x * cw, dim + tick), thin) }
+            // Spray: three short arcs falling onto the roof.
+            val spray = Ind.a100.copy(alpha = 0.7f)
+            listOf(0.46f, 0.55f, 0.64f).forEachIndexed { i, x ->
+                val s = Offset(left + x * cw, top + ch * (0.02f - 0.05f * (i % 2)))
+                drawLine(spray, s, Offset(s.x - ch * 0.04f, s.y + ch * 0.1f), stroke)
+            }
+        }
+        if (monogram != null) {
+            Box(Modifier.align(Alignment.BottomEnd).padding(8.dp).border(1.dp, Ind.a300.copy(alpha = 0.6f)).padding(horizontal = 7.dp, vertical = 2.dp)) {
+                Text(monogram, color = Ind.a100, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.08.sp)
+            }
+        }
+    }
+}
+
+/** Up to two initials from a name: "Sparkle Auto Spa" -> "SA". */
+fun initialsOf(name: String): String =
+    name.split(' ', '-', '&').filter { it.isNotBlank() && it.first().isLetterOrDigit() }.take(2).joinToString("") { it.first().uppercase() }

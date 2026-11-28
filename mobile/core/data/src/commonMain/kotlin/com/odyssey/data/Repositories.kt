@@ -22,6 +22,13 @@ import kotlinx.serialization.json.JsonElement
 @Serializable internal data class LocationPatch(val autoAccept: Boolean)
 @Serializable internal data class ItemBody(val name: String, val description: String, val category: String, val durationMinutes: Int, val active: Boolean, val prices: Map<String, Long>, val baysUsed: Int = 1, val outOfStock: Boolean = false)
 @Serializable internal data class CommissionBody(val bps: Int?)
+@Serializable internal data class ReplyBody(val text: String)
+@Serializable internal data class StaffBody(val name: String, val phone: String, val role: String, val pin: String)
+@Serializable internal data class BankBody(val accountName: String, val accountNumber: String, val ifsc: String)
+@Serializable internal data class OwnerPinBody(val newPin: String, val currentPin: String? = null)
+@Serializable internal data class HoldBody(val hold: Boolean)
+@Serializable internal data class DocBody(val state: String, val note: String? = null)
+@Serializable internal data class ResolveBody(val uphold: Boolean, val refundMinor: Long, val note: String)
 
 class AuthRepositoryImpl(private val api: ApiClient, private val store: SessionStore, private val onChange: (Session?) -> Unit) : AuthRepository {
     override suspend fun config(): PublicConfig = api.get("/config")
@@ -91,13 +98,24 @@ class ProviderRepositoryImpl(private val api: ApiClient) : ProviderRepository {
     override suspend fun payouts(pin: String): List<PayoutRow> = api.get("/provider/payouts", pin = pin)
     override suspend fun staff(): List<User> = api.get("/provider/staff")
     override suspend fun setAutoAccept(locationId: String, on: Boolean) { api.put<LocationPatch, JsonElement>("/provider/locations/$locationId", LocationPatch(on)) }
+    override suspend fun updateLocation(locationId: String, update: LocationUpdate): ProviderLocation = api.put("/provider/locations/$locationId", update)
+    override suspend fun reviews(): List<ProviderReview> = api.get("/provider/reviews")
+    override suspend fun reply(reviewId: String, text: String): ProviderReview = api.post("/provider/reviews/$reviewId/reply", ReplyBody(text))
+    override suspend fun addStaff(name: String, phone: String, role: Role, staffPin: String, ownerPin: String): User = api.post("/provider/staff", StaffBody(name, normalizePhone(phone), role.name, staffPin), ownerPin)
+    override suspend fun removeStaff(id: String, ownerPin: String) = api.delete("/provider/staff/$id", ownerPin)
+    override suspend fun saveBank(accountName: String, accountNumber: String, ifsc: String, ownerPin: String): Provider = api.put("/provider/bank", BankBody(accountName, accountNumber, ifsc), ownerPin)
+    override suspend fun setOwnerPin(newPin: String, currentPin: String?) { api.putUnit("/provider/owner-pin", OwnerPinBody(newPin, currentPin)) }
 }
 
 class AdminRepositoryImpl(private val api: ApiClient) : AdminRepository {
-    override suspend fun dashboard(): Dashboard = api.get("/admin/dashboard")
+    override suspend fun dashboard(range: String): Dashboard = api.get("/admin/dashboard", mapOf("range" to range))
     override suspend fun providers(status: String?): List<Provider> = api.get("/admin/providers", mapOf("status" to status))
     override suspend fun provider(id: String): Provider = api.get("/admin/providers/$id")
     override suspend fun providerAction(id: String, action: String, note: String?): Provider = api.post("/admin/providers/$id/actions", ActionBody(action, note))
     override suspend fun setCommission(id: String, bps: Int?): Provider = api.put("/admin/providers/$id/commission", CommissionBody(bps))
     override suspend fun orders(status: String?): List<Order> = api.get("/admin/orders", mapOf("status" to status, "limit" to 200))
+    override suspend fun setHold(id: String, hold: Boolean): Provider = api.put("/admin/providers/$id/hold", HoldBody(hold))
+    override suspend fun reviewDocument(id: String, type: String, state: String, note: String?): Provider = api.post("/admin/providers/$id/documents/$type", DocBody(state, note))
+    override suspend fun tickets(status: String?): List<Ticket> = api.get("/admin/tickets", mapOf("status" to status))
+    override suspend fun resolveTicket(id: String, uphold: Boolean, refundMinor: Long, note: String): Ticket = api.post("/admin/tickets/$id/resolve", ResolveBody(uphold, refundMinor, note))
 }

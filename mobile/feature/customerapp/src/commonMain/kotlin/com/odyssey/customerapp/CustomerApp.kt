@@ -43,19 +43,19 @@ sealed interface Route {
  * supply the container, the platform actions and the location provider; everything else is shared.
  */
 @Composable
-fun CustomerEntry(container: AppContainer, platform: PlatformActions, location: LocationProvider, allowSimulation: Boolean) {
+fun CustomerEntry(container: AppContainer, platform: PlatformActions, location: LocationProvider, allowSimulation: Boolean, onReady: () -> Unit = {}) {
     IndustryTheme {
         var config by remember { mutableStateOf<PublicConfig?>(null) }
         var failure by remember { mutableStateOf<String?>(null) }
-        LaunchedEffect(Unit) { try { config = container.auth.config() } catch (e: Exception) { failure = e.friendly() } }
+        LaunchedEffect(Unit) { try { config = container.auth.config() } catch (e: Exception) { failure = e.friendly() }; if (failure != null) onReady() }
         val loaded = config
         when {
             loaded != null -> CompositionLocalProvider(
                 LocalContainer provides container, LocalTenant provides loaded, LocalVertical provides CarWashUi, LocalLocation provides location,
                 LocalPlatform provides platform, LocalCustomer provides remember { CustomerState() },
-            ) { ProvideWindowClass { CustomerApp(loaded.tenant.name, allowSimulation) } }
-            failure != null -> Box(Modifier.fillMaxSize(), Alignment.Center) { ErrorBox(failure!!) }
-            else -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator(color = Ind.accent) }
+            ) { ProvideWindowClass { CustomerApp(loaded.tenant.name, allowSimulation, onReady) } }
+            failure != null -> Box(Modifier.fillMaxSize().background(Ind.bg).padding(24.dp), Alignment.Center) { ErrorBox(failure!!) }
+            else -> Box(Modifier.fillMaxSize().background(Ind.bg), Alignment.Center) { CircularProgressIndicator(color = Ind.accent) }
         }
     }
 }
@@ -64,7 +64,7 @@ private val TABS = listOf(TabItem("Explore", Lucide.Compass), TabItem("Bookings"
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-private fun CustomerApp(tenantName: String, allowSimulation: Boolean) {
+private fun CustomerApp(tenantName: String, allowSimulation: Boolean, onReady: () -> Unit) {
     val app = LocalContainer.current
     val customer = LocalCustomer.current
     val platform = LocalPlatform.current
@@ -79,6 +79,7 @@ private fun CustomerApp(tenantName: String, allowSimulation: Boolean) {
     BackHandler(enabled = nav.canPop) { nav.pop() }
 
     if (session == null) {
+        LaunchedEffect(Unit) { onReady() }
         val login: @Composable () -> Unit = { LoginScreen("Book a car wash near you.", "See price and wait time before you leave home.", askName = true, onSignedIn = { nav.reset(Route.Tabs); tab = 0 }) }
         if (LocalWindow.current.isWide) CenteredContent(520.dp, login) else login()
         return
@@ -112,7 +113,8 @@ private fun CustomerApp(tenantName: String, allowSimulation: Boolean) {
             delay(20_000)
         }
     }
-    if (!ready) { Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator(color = Ind.accent) }; return }
+    if (!ready) { Box(Modifier.fillMaxSize().background(Ind.bg), Alignment.Center) { CircularProgressIndicator(color = Ind.accent) }; return }
+    LaunchedEffect(Unit) { onReady() }
 
     val routeContent: @Composable () -> Unit = { when (val r = nav.current) {
         Route.Tabs -> Column(Modifier.fillMaxSize()) {

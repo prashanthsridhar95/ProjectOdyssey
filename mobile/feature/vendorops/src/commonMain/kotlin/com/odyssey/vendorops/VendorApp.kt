@@ -31,10 +31,16 @@ sealed interface VRoute {
     data object Scan : VRoute
     data object WalkIn : VRoute
     data class EditItem(val item: Item?) : VRoute
+    data object Reviews : VRoute
+    data object Outlet : VRoute
+    data object Staff : VRoute
+    data object Bank : VRoute
+    data object OwnerPin : VRoute
+    data object Earnings : VRoute
 }
 
 private enum class VTab(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
-    STATUS("Status", Lucide.ShieldCheck), BOOKINGS("Bookings", Lucide.Inbox), SLOTS("Slots", Lucide.CalendarDays), MENU("Menu", Lucide.List), EARNINGS("Earnings", Lucide.Wallet)
+    STATUS("Status", Lucide.ShieldCheck), BOOKINGS("Bookings", Lucide.Inbox), SLOTS("Slots", Lucide.CalendarDays), MENU("Menu", Lucide.List), EARNINGS("Earnings", Lucide.Wallet), MORE("More", Lucide.Ellipsis)
 }
 
 class ProviderViewModel(private val app: AppContainer) : BaseViewModel() {
@@ -92,6 +98,7 @@ private fun LockScreen(roster: List<RosterEntry>, outlet: String, onUnlocked: ()
     var pin by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var forgot by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val length = if (who.role == Role.PROVIDER_OWNER) 6 else 4
 
@@ -113,11 +120,11 @@ private fun LockScreen(roster: List<RosterEntry>, outlet: String, onUnlocked: ()
             roster.forEach { p ->
                 val on = p.id == who.id
                 Column(
-                    Modifier.width(104.dp).then(if (on) Modifier.blueprint(fill = Ind.a100, line = Ind.accent) else Modifier.hairline()).clickable { who = p; pin = ""; error = null }.padding(vertical = 12.dp),
+                    Modifier.width(112.dp).then(if (on) Modifier.blueprint(fill = Ind.a100, line = Ind.accent) else Modifier.hairline()).clickable { who = p; pin = ""; error = null }.padding(vertical = 12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Box(Modifier.size(44.dp).background(if (on) Ind.accent else Ind.n200, CircleShape), Alignment.Center) { Body(p.name.split(" ").take(2).joinToString("") { it.take(1) }.uppercase(), weight = FontWeight.SemiBold, color = if (on) Ind.bg else Ind.text) }
-                    Body(p.name.substringBefore(" "), size = 13, weight = if (on) FontWeight.Medium else FontWeight.Normal)
+                    Box(Modifier.size(44.dp).background(if (on) Ind.accent else Ind.n200, CircleShape), Alignment.Center) { Body(p.name.split(" ").filter { it.isNotBlank() }.let { w -> (w.first().take(1) + if (w.size > 1) w.last().take(1) else "") }.uppercase(), weight = FontWeight.SemiBold, color = if (on) Ind.bg else Ind.text) }
+                    androidx.compose.material3.Text(p.name, Modifier.padding(horizontal = 6.dp), fontSize = androidx.compose.ui.unit.TextUnit(13f, androidx.compose.ui.unit.TextUnitType.Sp), fontWeight = if (on) FontWeight.Medium else FontWeight.Normal, maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, color = Ind.text)
                     Body(p.role.name.removePrefix("PROVIDER_").titleCase(), size = 11, color = if (on) Ind.a800 else Ind.muted)
                 }
             }
@@ -134,7 +141,7 @@ private fun LockScreen(roster: List<RosterEntry>, outlet: String, onUnlocked: ()
             listOf(listOf("1", "2", "3"), listOf("4", "5", "6"), listOf("7", "8", "9"), listOf("Forgot", "0", "⌫")).forEach { row ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     row.forEach { k ->
-                        Box(Modifier.weight(1f).height(60.dp).then(if (k == "Forgot") Modifier else Modifier.hairline()).clickable { when (k) { "Forgot" -> app.logout(); "⌫" -> pin = pin.dropLast(1); else -> press(k) } }, Alignment.Center) {
+                        Box(Modifier.weight(1f).height(60.dp).then(if (k == "Forgot") Modifier else Modifier.hairline()).clickable { when (k) { "Forgot" -> forgot = true; "⌫" -> pin = pin.dropLast(1); else -> press(k) } }, Alignment.Center) {
                             if (k == "Forgot") Body("Forgot", size = 13, color = Ind.a700) else if (k == "⌫") Icon(Lucide.Delete, null, Modifier.size(24.dp)) else Heading(k, 26)
                         }
                     }
@@ -142,6 +149,10 @@ private fun LockScreen(roster: List<RosterEntry>, outlet: String, onUnlocked: ()
             }
         }
     }
+    if (forgot) ConfirmDialog(
+        "Forgot your PIN?", if (who.role == Role.PROVIDER_OWNER) "This signs the device out. Sign in again with your phone and a one-time code, then set a new Owner PIN under More." else "Ask the owner to set a new PIN for you. If you sign the device out, an owner or manager has to sign in again before anyone can use it.",
+        "Sign the device out", { forgot = false; app.logout() }, { forgot = false }, danger = true,
+    )
 }
 
 // ---- Home with tabs, routes and the accept alert ----
@@ -164,7 +175,10 @@ private fun VendorHome(user: User) {
 
     Remote(state, vm::reload) { p ->
         val live = p.status == "LIVE"
-        val tabs = VTab.entries.filter { (it == VTab.STATUS && !live) || it == VTab.BOOKINGS || it == VTab.SLOTS || (it == VTab.MENU && manager) || (it == VTab.EARNINGS && owner) }
+        // Five tabs at most: before going live, Status takes the Earnings spot and earnings move under More.
+        val tabs = VTab.entries.filter { (it == VTab.STATUS && !live) || it == VTab.BOOKINGS || it == VTab.SLOTS || (it == VTab.MENU && manager) || (it == VTab.EARNINGS && owner && live) || it == VTab.MORE }
+        var unreplied by remember { mutableStateOf(0) }
+        LaunchedEffect(p.id) { unreplied = runCatching { app.provider.reviews().count { it.reply == null } }.getOrDefault(0) }
         val loc = p.locations.firstOrNull()
         LaunchedEffect(live) { if (!live) tab = VTab.STATUS }
 
@@ -182,21 +196,30 @@ private fun VendorHome(user: User) {
             VRoute.Tabs -> Column(Modifier.fillMaxSize().background(Ind.bg)) {
                 Box(Modifier.weight(1f)) {
                     if (loc == null) EmptyNote("No outlet yet.") else when (tab) {
-                        VTab.STATUS -> OnboardingScreen(p, onMenu = { tab = VTab.MENU }, onStaff = { report("Add staff from the web dashboard for now.") }, onRefresh = vm::reload)
+                        VTab.STATUS -> OnboardingScreen(p, onMenu = { tab = VTab.MENU }, onStaff = { if (owner) nav.push(VRoute.Staff) else report("Ask the owner to add staff.") }, onBank = { if (owner) nav.push(VRoute.Bank) else report("Ask the owner to add the bank account.") }, onRefresh = vm::reload)
                         VTab.BOOKINGS -> InboxScreen(p, loc, user, report, onOpen = { nav.push(VRoute.Detail(it)) }, onWalkIn = { nav.push(VRoute.WalkIn) }, onScan = { nav.push(VRoute.Scan) }, onLock = { app.locked.value = true })
                         VTab.SLOTS -> CalendarScreen(loc, report, onWalkIn = { nav.push(VRoute.WalkIn) })
                         VTab.MENU -> MenuScreen(loc.id, owner, onEdit = { nav.push(VRoute.EditItem(it)) })
                         VTab.EARNINGS -> EarningsScreen(report)
+                        VTab.MORE -> MoreScreen(p, user, unreplied, onEarnings = if (owner && !live) ({ nav.push(VRoute.Earnings) }) else null, onReviews = { nav.push(VRoute.Reviews) },
+                            onOutlet = { nav.push(VRoute.Outlet) }, onStaff = { nav.push(VRoute.Staff) }, onBank = { nav.push(VRoute.Bank) }, onPin = { nav.push(VRoute.OwnerPin) }, onLock = { app.locked.value = true })
                     }
                 }
-                androidx.compose.material3.SnackbarHost(snack)
+                IndSnackbarHost(snack)
                 BottomTabs(tabs.map { TabItem(it.label, it.icon) }, tabs.indexOf(tab).coerceAtLeast(0)) { tab = tabs[it] }
             }
             is VRoute.Detail -> BookingDetailScreen(r.orderId, onBack = { nav.pop() }, report = report)
             VRoute.Scan -> ScanScreen(onClose = { nav.pop() }, onFound = { nav.replace(VRoute.Detail(it)) })
             VRoute.WalkIn -> loc?.let { WalkInScreen(it, onClose = { nav.pop() }, onDone = { nav.replace(VRoute.Detail(it)) }) }
             is VRoute.EditItem -> loc?.let { EditItemScreen(it.id, r.item, owner, onBack = { nav.pop() }) }
+            VRoute.Reviews -> ReviewsScreen(onBack = { nav.pop() }, report = report, onChanged = { unreplied = (unreplied - 1).coerceAtLeast(0) })
+            VRoute.Outlet -> loc?.let { OutletSettingsScreen(it, onBack = { nav.pop() }, onSaved = vm::reload, report = report) }
+            VRoute.Staff -> StaffScreen(onBack = { nav.pop() }, report = report, onChanged = vm::reload)
+            VRoute.Bank -> BankScreen(p, onBack = { nav.pop() }, onSaved = vm::reload, report = report)
+            VRoute.OwnerPin -> OwnerPinScreen(onBack = { nav.pop() }, report = report)
+            VRoute.Earnings -> Column(Modifier.fillMaxSize()) { Row(Modifier.statusBarsPadding().padding(start = 20.dp, top = 8.dp)) { Icon(Lucide.ArrowLeft, "Back", Modifier.size(24.dp).clickable { nav.pop() }) }; Box(Modifier.weight(1f)) { EarningsScreen(report) } }
         }
+        if (nav.current != VRoute.Tabs) IndSnackbarHost(snack)
 
         alert?.let { o ->
             AcceptAlert(o, onDone = { platform.alertSound(false); silenced = silenced + o.id; alert = null }, report)
@@ -245,7 +268,7 @@ private fun AcceptAlert(o: Order, onDone: () -> Unit, report: (String) -> Unit) 
             Box(Modifier.weight(2f)) { PrimaryButton("Accept booking", { scope.launch { try { app.providerDay.act(o.id, "ACCEPT", null); onDone() } catch (e: Exception) { report(e.friendly()) } } }, height = 56) }
         }
     }
-    if (reject) ReasonDialog("Reject ${displayCode(o.code)}", "Reason (shown to the customer)", { reason -> reject = false; scope.launch { try { app.providerDay.act(o.id, "REJECT", reason); onDone() } catch (e: Exception) { report(e.friendly()) } } }, { reject = false })
+    if (reject) ConfirmDialog("Reject ${displayCode(o.code)}?", "${o.customerName} is refunded ${formatMoney(o.totalMinor)} in full and told straight away. Rejections count against your cancellation rate.", "Reject", reasonLabel = "Reason (the customer sees this)", danger = true, onConfirm = { reason -> reject = false; scope.launch { try { app.providerDay.act(o.id, "REJECT", reason); onDone() } catch (e: Exception) { report(e.friendly()) } } }, onDismiss = { reject = false })
 }
 
 fun durationText(o: Order): String {
@@ -256,10 +279,14 @@ fun durationText(o: Order): String {
 // ---- Onboarding status ----
 
 @Composable
-private fun OnboardingScreen(p: Provider, onMenu: () -> Unit, onStaff: () -> Unit, onRefresh: () -> Unit) {
+private fun OnboardingScreen(p: Provider, onMenu: () -> Unit, onStaff: () -> Unit, onBank: () -> Unit, onRefresh: () -> Unit) {
     val app = LocalContainer.current
     var menuCount by remember { mutableStateOf<Int?>(null) }
-    LaunchedEffect(p.id) { menuCount = p.locations.firstOrNull()?.let { runCatching { app.provider.items(it.id).size }.getOrNull() } }
+    var staffCount by remember { mutableStateOf(0) }
+    LaunchedEffect(p.id) {
+        menuCount = p.locations.firstOrNull()?.let { runCatching { app.provider.items(it.id).size }.getOrNull() }
+        staffCount = runCatching { app.provider.staff().size }.getOrDefault(0)
+    }
     val steps = listOf("SUBMITTED" to "Documents submitted", "UNDER_REVIEW" to "Under review", "APPROVED" to "Approved", "LIVE" to "Live")
     val order = listOf("SUBMITTED", "UNDER_REVIEW", "CHANGES_REQUESTED", "APPROVED", "LIVE")
     val at = order.indexOf(p.status).coerceAtLeast(0)
@@ -268,8 +295,8 @@ private fun OnboardingScreen(p: Provider, onMenu: () -> Unit, onStaff: () -> Uni
     Screen("Status", scroll = true) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Tag(p.status.titleCase(), if (p.status == "SUSPENDED" || p.status == "REJECTED") TagKind.DANGER else TagKind.ACCENT)
-            Heading(if (p.status == "CHANGES_REQUESTED") "We need a few changes" else "We're checking your documents", 32)
-            Body(p.reviewNote ?: "Usually done in 2 working days. You can set up your menu and slots meanwhile.", size = 14, color = Ind.muted)
+            Heading(when (p.status) { "CHANGES_REQUESTED" -> "We need a few changes"; "APPROVED" -> "You're approved"; "SUSPENDED" -> "Your listing is paused"; "REJECTED" -> "Not approved"; else -> "We're checking your documents" }, 32)
+            Body(p.reviewNote ?: when (p.status) { "APPROVED" -> "The platform team will take you live shortly."; "SUSPENDED" -> "Customers cannot book you. Contact the platform team."; else -> "Usually done in 2 working days. You can set up your menu and slots meanwhile." }, size = 14, color = Ind.muted)
         }
         Column(Modifier.fillMaxWidth().hairline().padding(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             steps.forEachIndexed { i, (_, label) ->
@@ -281,10 +308,12 @@ private fun OnboardingScreen(p: Provider, onMenu: () -> Unit, onStaff: () -> Uni
         }
         if (p.documents.any { it.state == "NEEDS_FIX" }) Section("To fix") { p.documents.filter { it.state == "NEEDS_FIX" }.forEach { d -> ErrorBox("${d.type.titleCase()}: ${d.note ?: "Please upload it again."}") } }
         Section("Get ready to go live") {
-            Check("Outlet profile and photos", true)
-            Check("Bays and slot length", true)
+            val loc = p.locations.firstOrNull()
+            Check("Outlet address and hours", loc != null && loc.address.isNotBlank())
+            Check("Bays and slot length", loc != null && loc.capacity > 0)
             Check("Add menu and prices", (menuCount ?: 0) > 0, onMenu)
-            Check("Add staff and PINs", p.staffCount > 1, onStaff)
+            Check("Bank account for payouts", p.bank != null, onBank)
+            Check("Add staff and PINs", staffCount > 1, onStaff)
         }
         GhostButton("Refresh status", onRefresh)
     }

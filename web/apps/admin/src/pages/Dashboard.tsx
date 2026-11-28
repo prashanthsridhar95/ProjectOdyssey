@@ -1,71 +1,84 @@
 import { useState } from 'react'
-import { money, useAsync, useLabels, useSession } from '@odyssey/api'
-import { Card, Empty, ErrorNote, PageHeader, Spinner, Table } from '@odyssey/ui'
 import { Link } from 'react-router-dom'
+import { money, moneyShort, useAsync, useLabels, useSession } from '@odyssey/api'
+import type { AlertItem } from '@odyssey/api'
+import { BarChart, Card, DataTable, Delta, EmptyState, ErrorNote, Icon, KpiStrip, PageHeader, Segmented, Skeleton, type IconName } from '@odyssey/ui'
 
 const RANGES = [['7d', '7 days'], ['30d', '30 days'], ['90d', '90 days']] as const
 
-function Delta({ pct }: { pct?: number | null }) {
-  if (pct == null) return null
-  return <span className={`delta ${pct >= 0 ? 'up' : 'down'} small`}> {pct >= 0 ? '▲' : '▼'} {Math.abs(pct)}%</span>
+function alertLink(a: AlertItem): string {
+  if (a.kind === 'VERIFICATION') return '/vendors?status=SUBMITTED'
+  if (a.kind === 'PAYOUT') return '/payments'
+  if (a.kind === 'TICKET' || /ticket/i.test(a.title)) return '/support'
+  return '/vendors'
+}
+function alertLook(a: AlertItem): [IconName, 'bad' | 'warn' | 'info'] {
+  if (/flag|fail|suspend/i.test(a.title)) return ['alert', 'bad']
+  if (a.kind === 'VERIFICATION' || /review/i.test(a.title)) return ['shield', 'info']
+  return ['clock', 'warn']
 }
 
 export function Dashboard() {
-  const { api } = useSession()
+  const { api, user } = useSession()
   const labels = useLabels()
-  const [range, setRange] = useState<string>('7d')
-  const { data, error, loading } = useAsync(() => api.admin.dashboard(range), [range])
-  const tabs = (
-    <div className="tabs" role="tablist">{RANGES.map(([k, l]) => <button key={k} className={range === k ? 'on' : ''} onClick={() => setRange(k)}>{l}</button>)}</div>
-  )
-  if (loading && !data) return <Spinner />
-  if (error || !data) return <ErrorNote message={error} />
-  const max = Math.max(1, ...data.series.map((d) => d.gmvMinor))
+  const [range, setRange] = useState<(typeof RANGES)[number][0]>('7d')
+  const { data, error, loading, reload } = useAsync(() => api.admin.dashboard(range), [range])
+  const hour = Number(new Intl.DateTimeFormat('en-IN', { hour: 'numeric', hour12: false, timeZone: 'Asia/Kolkata' }).format(new Date()))
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
+
   return (
     <>
-      <PageHeader title="Dashboard" subtitle="How the marketplace is doing" actions={tabs} />
-      <div className="kpis">
-        <div><div className="label">Gross value (GMV)</div><div className="value">{money(data.gmvMinor)}</div><Delta pct={data.gmvDeltaPct} /></div>
-        <div><div className="label">{labels.order}s</div><div className="value">{data.bookings}</div><div className="muted small">{data.bookingsPerDay} per day</div></div>
-        <div><div className="label">Take rate</div><div className="value">{(data.takeRateBps / 100).toFixed(1)}%</div></div>
-        <div><div className="label">Utilisation</div><div className="value">{data.utilisationPct}%</div></div>
-        <div><div className="label">Cancellations</div><div className="value">{data.cancellationPct}%</div><div className="muted small">{data.noShowPct}% no-shows</div></div>
-        <div><div className="label">{labels.provider}s live</div><div className="value">{data.vendorsLive}</div><div className="muted small">{data.vendorsInReview} in review</div></div>
-      </div>
-      <div style={{ height: 20 }} />
-      <div className="grid cols-2">
-        <Card>
-          <h2>GMV by day</h2>
-          {data.series.length === 0 ? <Empty>No bookings in this range.</Empty> : (
-            <>
-              <div className="bars" role="img" aria-label="GMV by day">
-                {data.series.map((d) => <div key={d.date} className="bar" style={{ height: `${(d.gmvMinor / max) * 100}%` }} title={`${d.date}: ${money(d.gmvMinor)}`} />)}
-              </div>
-              <div className="bars-x">{data.series.map((d, i) => <span key={d.date}>{data.series.length <= 14 || i % 7 === 0 ? d.date.slice(8) : ''}</span>)}</div>
-            </>
-          )}
-        </Card>
-        <Card>
-          <h2>Needs attention</h2>
-          {data.alerts.length === 0 ? <Empty>Nothing needs attention.</Empty> : data.alerts.map((a, i) => (
-            <div className="alert-row" key={i}>
-              <div><strong>{a.title}</strong><div className="muted small">{a.meta}</div></div>
-              <Link to={a.kind === 'VERIFICATION' ? '/vendors?status=SUBMITTED' : a.kind === 'PAYOUT' ? '/payments' : '/vendors'}>Open</Link>
-            </div>
-          ))}
-        </Card>
-      </div>
-      <div style={{ height: 20 }} />
-      <Card flush>
-        <div style={{ padding: '16px 18px 4px' }}><h2>Top {labels.provider.toLowerCase()}s</h2></div>
-        {data.topVendors.length === 0 ? <Empty>No data yet.</Empty> : (
-          <Table head={[labels.provider, 'Bookings', 'GMV', 'Utilisation', 'Rating', 'Cancelled', 'No-show']}>
-            {data.topVendors.map((v) => (
-              <tr key={v.providerId}><td><Link to={`/vendors?id=${v.providerId}`}>{v.name}</Link></td><td>{v.bookings}</td><td>{money(v.gmvMinor)}</td><td>{v.utilisationPct}%</td><td>{v.ratingAvg.toFixed(1)}</td><td>{v.cancelPct}%</td><td>{v.noShowPct}%</td></tr>
-            ))}
-          </Table>
-        )}
-      </Card>
+      <PageHeader title="Dashboard" subtitle={`${greeting}, ${user?.name.split(' ')[0] ?? ''}. Here is how the marketplace is doing.`} actions={<Segmented label="Period" options={RANGES} value={range} onChange={setRange} />} />
+      <ErrorNote message={error} onRetry={reload} />
+      {loading && !data ? (
+        <div className="kpis">{Array.from({ length: 6 }, (_, i) => <div key={i} className="stack tight"><Skeleton width="60%" /><Skeleton width="80%" height={28} /></div>)}</div>
+      ) : data && (
+        <>
+          <KpiStrip items={[
+            { label: 'Gross value (GMV)', icon: 'trend', value: money(data.gmvMinor), foot: <Delta pct={data.gmvDeltaPct} /> },
+            { label: `${labels.order}s`, icon: 'calendar', value: data.bookings.toLocaleString('en-IN'), foot: `${data.bookingsPerDay} a day on average` },
+            { label: 'Take rate', icon: 'percent', value: `${(data.takeRateBps / 100).toFixed(1)}%`, foot: 'Commission over GMV' },
+            { label: 'Utilisation', icon: 'grid', value: `${data.utilisationPct}%`, foot: 'Booked share of open slots' },
+            { label: 'Cancellations', icon: 'ban', value: `${data.cancellationPct}%`, foot: `${data.noShowPct}% no-shows` },
+            { label: `${labels.provider}s live`, icon: 'store', value: data.vendorsLive, foot: <Link to="/vendors?status=SUBMITTED">{data.vendorsInReview} waiting for review</Link> },
+          ]} />
+          <div className="spacer" />
+          <div className="grid" style={{ gridTemplateColumns: 'minmax(0, 1.6fr) minmax(300px, 1fr)' }}>
+            <Card title="GMV by day" actions={<span className="muted small num">{money(data.series.reduce((s, d) => s + d.gmvMinor, 0))} in {RANGES.find((r) => r[0] === range)![1]}</span>}>
+              {data.series.every((d) => d.gmvMinor === 0)
+                ? <EmptyState icon="trend" title="No bookings in this period">GMV appears here as soon as customers pay for bookings.</EmptyState>
+                : <BarChart label="GMV by day" format={moneyShort} data={data.series.map((d) => ({ key: d.date, label: d.date.slice(8), value: d.gmvMinor, detail: new Date(`${d.date}T12:00:00+05:30`).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }) }))} />}
+            </Card>
+            <Card title="Needs attention" actions={data.alerts.length > 0 && <span className="badge warn">{data.alerts.length}</span>}>
+              {data.alerts.length === 0 ? <EmptyState icon="checkCircle" title="All clear">Nothing is waiting on the platform team.</EmptyState> : data.alerts.map((a, i) => {
+                const [icon, tone] = alertLook(a)
+                return (
+                  <div className="alert-row" key={i}>
+                    <span className={`sev ${tone}`}><Icon name={icon} size={15} /></span>
+                    <div className="grow"><strong>{a.title}</strong><div className="muted small">{a.meta}</div></div>
+                    <Link to={alertLink(a)} className="small nowrap">Open <Icon name="chevronRight" size={12} /></Link>
+                  </div>
+                )
+              })}
+            </Card>
+          </div>
+          <div className="spacer" />
+          <Card title={`Top ${labels.provider.toLowerCase()}s`} flush actions={<Link to="/vendors" className="small">All {labels.provider.toLowerCase()}s</Link>}>
+            <DataTable rows={data.topVendors} rowKey={(v) => v.providerId} pageSize={10}
+              empty={<EmptyState icon="store" title="No activity yet">{labels.provider}s show here once they take bookings.</EmptyState>}
+              initialSort={{ key: 'gmv', dir: 'desc' }}
+              columns={[
+                { key: 'name', header: labels.provider, cell: (v) => <Link to={`/vendors/${v.providerId}`}><strong>{v.name}</strong></Link>, sort: (v) => v.name },
+                { key: 'bookings', header: `${labels.order}s`, cell: (v) => v.bookings, sort: (v) => v.bookings, align: 'right' },
+                { key: 'gmv', header: 'GMV', cell: (v) => money(v.gmvMinor), sort: (v) => v.gmvMinor, align: 'right' },
+                { key: 'util', header: 'Utilisation', cell: (v) => `${v.utilisationPct}%`, sort: (v) => v.utilisationPct, align: 'right' },
+                { key: 'rating', header: 'Rating', cell: (v) => <span className="row tight" style={{ justifyContent: 'flex-end' }}><span className="stars">★</span>{v.ratingAvg.toFixed(1)}</span>, sort: (v) => v.ratingAvg, align: 'right' },
+                { key: 'cancel', header: 'Cancelled', cell: (v) => <span className={v.cancelPct >= 15 ? 'strong' : ''} style={{ color: v.cancelPct >= 15 ? 'var(--c-bad)' : undefined }}>{v.cancelPct}%</span>, sort: (v) => v.cancelPct, align: 'right' },
+                { key: 'noshow', header: 'No-show', cell: (v) => `${v.noShowPct}%`, sort: (v) => v.noShowPct, align: 'right' },
+              ]} />
+          </Card>
+        </>
+      )}
     </>
   )
 }

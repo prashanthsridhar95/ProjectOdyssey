@@ -122,14 +122,34 @@ class RunProviderDay(private val repo: ProviderRepository, private val orders: O
 }
 
 class RunAdmin(private val repo: AdminRepository, private val orders: OrderRepository) {
-    suspend fun dashboard() = repo.dashboard()
+    suspend fun dashboard(range: String = "7d") = repo.dashboard(range)
     suspend fun providers(status: String?) = repo.providers(status)
     suspend fun provider(id: String) = repo.provider(id)
     suspend fun step(id: String, action: String, note: String?) = repo.providerAction(id, action, note)
     suspend fun commission(id: String, bps: Int?) = repo.setCommission(id, bps)
     suspend fun orders(status: String?) = repo.orders(status)
     suspend fun cancel(orderId: String, reason: String) = orders.act(orderId, "ADMIN_CANCEL", reason)
+    suspend fun hold(id: String, on: Boolean) = repo.setHold(id, on)
+    suspend fun reviewDocument(id: String, type: String, verified: Boolean, note: String?) = repo.reviewDocument(id, type, if (verified) "VERIFIED" else "NEEDS_FIX", note)
+    suspend fun tickets(openOnly: Boolean) = repo.tickets(if (openOnly) "OPEN" else null)
+    suspend fun resolve(id: String, uphold: Boolean, refundMinor: Long, note: String) = repo.resolveTicket(id, uphold, refundMinor.coerceAtLeast(0), note.trim())
 }
+
+/** Checks on what people type, shared by every app so the rules match. */
+object Validate {
+    fun ifsc(s: String) = Regex("^[A-Z]{4}0[A-Z0-9]{6}$").matches(s)
+    fun accountNumber(s: String) = Regex("^\\d{9,18}$").matches(s)
+    /** Rejects PINs anyone would guess first: all one digit, or a straight run up or down. */
+    fun strongPin(p: String): Boolean {
+        if (p.isEmpty() || p.any { !it.isDigit() } || p.all { it == p[0] }) return false
+        val up = p.zipWithNext().all { (a, b) -> b - a == 1 }; val down = p.zipWithNext().all { (a, b) -> a - b == 1 }
+        return !up && !down
+    }
+    fun indianMobile(raw: String) = normalizePhone(raw).let { it.startsWith("+91") && it.length == 13 }
+}
+
+/** "+919845021734" -> "+91 98450 21734". */
+fun formatPhone(p: String): String = Regex("^\\+91(\\d{5})(\\d{5})$").find(p)?.let { "+91 ${it.groupValues[1]} ${it.groupValues[2]}" } ?: p
 
 /** Booking progress for the timeline: which step the order is on. Built from the order's history, so it matches what the vendor did. */
 data class ProgressStep(val label: String, val at: String?, val done: Boolean, val current: Boolean)

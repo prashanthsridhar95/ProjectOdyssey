@@ -14,10 +14,14 @@ private external fun apiUrl(): String
 @JsFun("() => (window.ODYSSEY && window.ODYSSEY.tenant) || 'carwash'")
 private external fun tenant(): String
 
+/** Tells the page the app has drawn, so it can take the loading splash away. */
+@JsFun("() => { if (window.odysseyReady) window.odysseyReady() }")
+private external fun signalReady()
+
 @OptIn(ExperimentalComposeUiApi::class)
 fun main() {
     val container = AppContainer(apiUrl(), tenant(), WebSessionStore("customer"), kv = WebKeyValueStore("customer"))
     ComposeViewport(viewportContainerId = "app") {
-        CustomerEntry(container, WebPlatform(), WebLocationProvider(), allowSimulation = false)
+        CustomerEntry(container, WebPlatform(), WebLocationProvider(), allowSimulation = false, onReady = ::signalReady)
     }
 }

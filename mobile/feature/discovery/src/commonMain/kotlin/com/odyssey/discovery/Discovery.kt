@@ -115,7 +115,8 @@ fun HomeScreen(
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Remote(s.list, vm::refresh) { places ->
                 if (places.isEmpty()) {
-                    EmptyNote(if (s.filters.activeCount > 0) "Nothing matches these filters. Try clearing one." else "No ${cfg.labels.provider.lowercase()}s within 30 km of here.")
+                    if (s.filters.activeCount > 0) EmptyState(Lucide.ListFilter, "Nothing matches these filters", "Try clearing one or two.")
+                    else EmptyState(Lucide.MapPin, "No ${cfg.labels.provider.lowercase()}s nearby yet", "We are not in this area yet. Try another place, or check back soon.")
                     cfg.serviceAreas.forEach { a -> Box(Modifier.fillMaxWidth(), Alignment.Center) { SecondaryButton("Look in ${a.name}", { customer.place = PlaceSel(a.name, "", a.lat, a.lng) }) } }
                 }
                 if (LocalWindow.current.isWide) {
@@ -147,7 +148,7 @@ fun areaOf(address: String): String = address.split(",").map { it.trim() }.let {
 fun PlaceCard(p: LocationSummary, onClick: () -> Unit) {
     val money = LocalTenant.current.config.money
     Column(Modifier.fillMaxWidth().padding(6.dp).blueprint().clickable(onClick = onClick)) {
-        Hatch(Modifier.fillMaxWidth().height(96.dp), "outlet photo")
+        BlueprintArt(Modifier.fillMaxWidth().height(96.dp), seed = p.id, monogram = initialsOf(p.name))
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.Bottom) {
                 Heading(p.name, 19, Modifier.weight(1f))
@@ -196,7 +197,7 @@ private fun MapView(
         }
         places.firstOrNull { it.id == selected }?.let { p ->
             Row(Modifier.align(Alignment.BottomCenter).padding(start = 16.dp, end = 16.dp, bottom = 24.dp).fillMaxWidth().background(Ind.bg).blueprint().clickable { onOpen(p.id) }.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Hatch(Modifier.size(88.dp))
+                BlueprintArt(Modifier.size(88.dp), seed = p.id, showCar = false, monogram = initialsOf(p.name))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Heading(p.name, 19)
                     Body("${p.distanceKm} km · ★ ${p.ratingAvg} (${p.ratingCount})" + (p.amenities.firstOrNull()?.let { " · $it" } ?: ""), size = 12, color = Ind.muted)
@@ -279,7 +280,7 @@ fun PlaceScreen(locationId: String, onBack: () -> Unit, onPickSlot: (itemIds: Li
 
     Column(Modifier.fillMaxSize().background(Ind.bg)) {
         Box(Modifier.fillMaxWidth().height(200.dp)) {
-            Hatch(Modifier.fillMaxSize(), "outlet photos · 1 / 6")
+            BlueprintArt(Modifier.fillMaxSize(), seed = locationId, monogram = (s.detail as? Load.Ready)?.value?.location?.name?.let(::initialsOf))
             Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 IconBox(Lucide.ArrowLeft, onClick = onBack)
                 IconBox(Lucide.Heart, tint = if (isFav) Ind.danger else Ind.text, onClick = {
