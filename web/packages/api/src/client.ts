@@ -2,6 +2,7 @@ import type {
   ApiErrorBody, AuditEntry, BulkEdit, Closure, LedgerRow, Outlier, PaymentRow, Promo, Review, Rule, RulePreview, Ticket, AuthResponse, Batch, Billing, Block, Customer, Dashboard, Earnings, Item, Location, LocationDraft,
   Order, Overview, DayCalendar, Payout, Provider, PublicConfig, Slot, StaffMember, TenantConfig, User,
 } from './types'
+import { promotionCalls } from './promotions'
 
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string) { super(message) }
@@ -63,6 +64,7 @@ export function createApi(opts: ClientOptions) {
   const del = <T,>(path: string, req?: Req) => call<T>('DELETE', path, undefined, req)
 
   return {
+    promotions: promotionCalls({ get, post, put, del }),
     config: () => get<PublicConfig>('/config'),
     auth: {
       requestOtp: (phone: string) => post<void>('/auth/otp', { phone }),

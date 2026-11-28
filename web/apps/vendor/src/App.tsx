@@ -13,6 +13,7 @@ import { BulkMenuPage } from './pages/BulkMenu'
 import { EarningsPage } from './pages/Earnings'
 import { StaffPage } from './pages/Staff'
 import { SettingsPage } from './pages/Settings'
+import { PromotionsPage } from './pages/Promotions'
 
 const ROLE: Record<string, string> = { PROVIDER_OWNER: 'Owner', PROVIDER_MANAGER: 'Manager', PROVIDER_STAFF: 'Counter staff' }
 const STATUS_TEXT: Record<string, string> = {
@@ -45,6 +46,7 @@ export function App() {
     { label: 'Business', items: [
       ...(manager ? [{ to: '/menu', label: 'Menu and prices', icon: 'tag' as const }] : []),
       ...(owner ? [{ to: '/bulk', label: 'Bulk price edit', icon: 'layers' as const }] : []),
+      ...(manager ? [{ to: '/promotions', label: 'Promotions', icon: 'zap' as const, keywords: 'happy hour discount offer deal festival sale' }] : []),
       { to: '/reviews', label: 'Reviews', icon: 'star', count: unreplied, countTone: 'neutral' as const },
       ...(owner ? [{ to: '/earnings', label: 'Earnings', icon: 'wallet' as const, keywords: 'payout statement money' }] : []),
     ] },
@@ -83,6 +85,7 @@ export function App() {
         <Route path="/reviews" element={<ReviewsPage onChange={reviews.reload} />} />
         {owner && <Route path="/bulk" element={<BulkMenuPage provider={me.data} />} />}
         {manager && <Route path="/menu" element={<MenuPage provider={me.data} />} />}
+        {manager && <Route path="/promotions" element={<PromotionsPage provider={me.data} owner={owner} />} />}
         {owner && <Route path="/earnings" element={<EarningsPage />} />}
         {owner && <Route path="/staff" element={<StaffPage />} />}
         {manager && <Route path="/settings" element={<SettingsPage provider={me.data} onChanged={me.reload} owner={owner} />} />}

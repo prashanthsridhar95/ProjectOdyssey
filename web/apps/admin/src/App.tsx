@@ -14,6 +14,7 @@ import { Moderation } from './pages/Moderation'
 import { BillingPage } from './pages/Billing'
 import { SettingsPage } from './pages/Settings'
 import { Audit } from './pages/Audit'
+import { PromotionsPage } from './pages/Promotions'
 
 const ROLE_LABEL: Record<string, string> = { ADMIN: 'Administrator', SUPPORT: 'Support', FINANCE: 'Finance' }
 
@@ -37,6 +38,7 @@ export function App() {
     { label: 'Money', items: [
       { to: '/payments', label: 'Payments', icon: 'wallet', keywords: 'payouts ledger collections refunds settlement' },
       { to: '/rules', label: 'Commission rules', icon: 'percent' },
+      { to: '/promotions', label: 'Promotions', icon: 'zap', keywords: 'vouchers coupons codes referral refer friend festival discount happy hour' },
       { to: '/billing', label: 'Platform billing', icon: 'receipt' },
     ] },
     { label: 'Configuration', items: [
@@ -72,6 +74,7 @@ export function App() {
         <Route path="/payments" element={<Payments />} />
         <Route path="/payouts" element={<Navigate to="/payments" replace />} />
         <Route path="/rules" element={<Rules />} />
+        <Route path="/promotions" element={<PromotionsPage />} />
         <Route path="/customers" element={<Customers />} />
         <Route path="/moderation" element={<Moderation onChange={queue.reload} />} />
         <Route path="/support" element={<Support onChange={queue.reload} />} />

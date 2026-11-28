@@ -31,9 +31,12 @@ export interface Order {
   subtotalMinor: number; taxMinor: number; feeMinor: number; totalMinor: number
   commissionBps?: number; commissionMinor?: number; cancellationReason?: string; createdAt: string
   actions: string[]; reviewed: boolean; bay?: number | null
+  /** Every discount on the booking; vendorDiscountMinor is the part the vendor funds (not sent to customers). */
+  discountMinor?: number; promoCode?: string | null; discounts?: import('./promotions').DiscountLine[]; vendorDiscountMinor?: number | null
 }
 
-export interface Slot { startsAt: string; endsAt: string; free: number; bookable: boolean }
+/** With services chosen, a slot carries its price before tax; a deal names the offer when it is below the usual price. */
+export interface Slot { startsAt: string; endsAt: string; free: number; bookable: boolean; priceMinor?: number | null; originalPriceMinor?: number | null; deal?: string | null }
 export interface Item { id: string; name: string; description: string; category: string; durationMinutes: number; active: boolean; prices: Record<string, number>; outOfStock?: boolean; baysUsed?: number }
 export interface Location {
   id: string; name: string; address: string; lat: number; lng: number; openTime: string; closeTime: string
